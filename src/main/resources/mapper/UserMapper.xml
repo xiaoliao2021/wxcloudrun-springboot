@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.tencent.wxcloudrun.dao.UserMapper">
+
+    <resultMap id="userMap" type="com.tencent.wxcloudrun.model.User">
+        <id property="id" column="id"/>
+        <result property="openid" column="openid"/>
+        <result property="unionid" column="unionid"/>
+        <result property="sessionKey" column="session_key"/>
+        <result property="nickname" column="nickname"/>
+        <result property="avatarUrl" column="avatar_url"/>
+        <result property="gender" column="gender"/>
+        <result property="coin" column="coin"/>
+        <result property="roomCard" column="room_card"/>
+        <result property="totalGame" column="total_game"/>
+        <result property="winGame" column="win_game"/>
+        <result property="status" column="status"/>
+        <result property="lastLoginAt" column="last_login_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByOpenid" resultMap="userMap">
+        SELECT `id`, `openid`, `unionid`, `session_key`, `nickname`, `avatar_url`, `gender`,
+               `coin`, `room_card`, `total_game`, `win_game`, `status`,
+               `last_login_at`, `created_at`, `updated_at`
+        FROM `user`
+        WHERE `openid` = #{openid}
+        LIMIT 1
+    </select>
+
+    <select id="selectById" resultMap="userMap">
+        SELECT `id`, `openid`, `unionid`, `session_key`, `nickname`, `avatar_url`, `gender`,
+               `coin`, `room_card`, `total_game`, `win_game`, `status`,
+               `last_login_at`, `created_at`, `updated_at`
+        FROM `user`
+        WHERE `id` = #{id}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.tencent.wxcloudrun.model.User"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO `user`(`openid`, `unionid`, `session_key`, `nickname`, `avatar_url`, `gender`, `last_login_at`)
+        VALUES(#{openid}, #{unionid}, #{sessionKey}, #{nickname}, #{avatarUrl}, #{gender}, NOW())
+    </insert>
+
+    <update id="updateLoginInfo" parameterType="com.tencent.wxcloudrun.model.User">
+        UPDATE `user`
+        SET `session_key` = #{sessionKey},
+            `last_login_at` = NOW()
+        <if test="unionid != null and unionid != ''">
+            , `unionid` = #{unionid}
+        </if>
+        <if test="nickname != null and nickname != ''">
+            , `nickname` = #{nickname}
+        </if>
+        <if test="avatarUrl != null and avatarUrl != ''">
+            , `avatar_url` = #{avatarUrl}
+        </if>
+        <if test="gender != null and gender > 0">
+            , `gender` = #{gender}
+        </if>
+        WHERE `openid` = #{openid}
+    </update>
+
+    <update id="updateProfile" parameterType="com.tencent.wxcloudrun.model.User">
+        UPDATE `user`
+        SET `id` = `id`
+        <if test="nickname != null and nickname != ''">
+            , `nickname` = #{nickname}
+        </if>
+        <if test="avatarUrl != null and avatarUrl != ''">
+            , `avatar_url` = #{avatarUrl}
+        </if>
+        <if test="gender != null and gender > 0">
+            , `gender` = #{gender}
+        </if>
+        WHERE `openid` = #{openid}
+    </update>
+
+    <update id="updateProfileById" parameterType="com.tencent.wxcloudrun.model.User">
+        UPDATE `user`
+        SET `id` = `id`
+        <if test="nickname != null and nickname != ''">
+            , `nickname` = #{nickname}
+        </if>
+        <if test="avatarUrl != null and avatarUrl != ''">
+            , `avatar_url` = #{avatarUrl}
+        </if>
+        <if test="gender != null and gender > 0">
+            , `gender` = #{gender}
+        </if>
+        <if test="unionid != null and unionid != ''">
+            , `unionid` = #{unionid}
+        </if>
+        WHERE `id` = #{id}
+    </update>
+
+    <update id="clearAccount">
+        UPDATE `user`
+        SET `nickname` = '',
+            `avatar_url` = '',
+            `session_key` = '',
+            `unionid` = '',
+            `status` = 3
+        WHERE `id` = #{id}
+    </update>
+
+</mapper>

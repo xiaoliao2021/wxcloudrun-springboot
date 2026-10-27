@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.tencent.wxcloudrun.dao.UserSessionMapper">
+
+    <resultMap id="sessionMap" type="com.tencent.wxcloudrun.model.UserSession">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="accessTokenHash" column="access_token_hash"/>
+        <result property="refreshTokenHash" column="refresh_token_hash"/>
+        <result property="accessExpireAt" column="access_expire_at"/>
+        <result property="refreshExpireAt" column="refresh_expire_at"/>
+        <result property="status" column="status"/>
+        <result property="ip" column="ip"/>
+        <result property="device" column="device"/>
+        <result property="clientVersion" column="client_version"/>
+        <result property="lastAccessAt" column="last_access_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByAccessTokenHash" resultMap="sessionMap">
+        SELECT `id`, `user_id`, `access_token_hash`, `refresh_token_hash`, `access_expire_at`,
+               `refresh_expire_at`, `status`, `ip`, `device`, `client_version`,
+               `last_access_at`, `created_at`, `updated_at`
+        FROM `user_session`
+        WHERE `access_token_hash` = #{hash}
+        LIMIT 1
+    </select>
+
+    <select id="selectByRefreshTokenHash" resultMap="sessionMap">
+        SELECT `id`, `user_id`, `access_token_hash`, `refresh_token_hash`, `access_expire_at`,
+               `refresh_expire_at`, `status`, `ip`, `device`, `client_version`,
+               `last_access_at`, `created_at`, `updated_at`
+        FROM `user_session`
+        WHERE `refresh_token_hash` = #{hash}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.tencent.wxcloudrun.model.UserSession"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO `user_session`(`user_id`, `access_token_hash`, `refresh_token_hash`,
+                                   `access_expire_at`, `refresh_expire_at`, `status`,
+                                   `ip`, `device`, `client_version`, `last_access_at`)
+        VALUES(#{userId}, #{accessTokenHash}, #{refreshTokenHash},
+               #{accessExpireAt}, #{refreshExpireAt}, #{status},
+               #{ip}, #{device}, #{clientVersion}, NOW())
+    </insert>
+
+    <update id="updateTokens">
+        UPDATE `user_session`
+        SET `access_token_hash` = #{accessTokenHash},
+            `refresh_token_hash` = #{refreshTokenHash},
+            `access_expire_at` = #{accessExpireAt},
+            `refresh_expire_at` = #{refreshExpireAt},
+            `last_access_at` = NOW()
+        WHERE `id` = #{id}
+    </update>
+
+    <update id="updateStatusByUserId">
+        UPDATE `user_session`
+        SET `status` = #{status}
+        WHERE `user_id` = #{userId} AND `status` = 1
+    </update>
+
+    <update id="updateStatusById">
+        UPDATE `user_session`
+        SET `status` = #{status}
+        WHERE `id` = #{id}
+    </update>
+
+    <update id="touch">
+        UPDATE `user_session`
+        SET `last_access_at` = NOW()
+        WHERE `id` = #{id}
+    </update>
+
+</mapper>

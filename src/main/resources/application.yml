@@ -8,10 +8,14 @@ spring:
     url: jdbc:mysql://${MYSQL_ADDRESS}/${MYSQL_DATABASE:springboot_demo}
     username: ${MYSQL_USERNAME}
     password: ${MYSQL_PASSWORD}
-  mvc:
-    view:
-      suffix: .html
-      prefix: /
+
+wx:
+  appid: ${WX_APPID:}
+  secret: ${WX_SECRET:}
+  access-expire-seconds: ${WX_ACCESS_EXPIRE:7200}
+  refresh-expire-seconds: ${WX_REFRESH_EXPIRE:2592000}
 
 mybatis:
   mapper-locations: classpath*:mapper/*Mapper.xml
+  configuration:
+    map-underscore-to-camel-case: true
