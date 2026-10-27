@@ -1,5 +1,6 @@
 package com.tencent.wxcloudrun.poker;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -9,11 +10,22 @@ import java.util.Set;
 /**
  * 一手牌（牌型 + 大小）。
  *
- * 7鬼523 只有四种牌型，且所有牌必须同一点数：
+ * 7鬼523 的合法牌型：
  * <pre>
- *   1 单张   2 对子   3 三条   4 四条
+ *   1 单张   2 对子   3 三条   4 四条       —— 必须同一点数（王同属 JOKER 一档）
+ *   5 顺子   6 同花   7 同花顺              —— 固定三张
  * </pre>
- * 大小：先比档位在房间 order 里的权重，权重相同再比最大那张牌的花色（王比大小）。
+ *
+ * 压牌仍然要求「同牌型、同张数」，所以不同牌型之间不需要互相定大小。
+ *
+ * 同类之间的比较口径不一样，别混：
+ * <ul>
+ *   <li>顺子 / 同花顺：比**自然点数的顶端**。7鬼523 的顺序表是乱的（7 最大、5 次之），
+ *       拿它去比连号会得到「345 = 456」「789 最大、8910 突然变小」这种荒谬结果，
+ *       所以连号一律按扑克本来的点数排：234 &lt; 345 &lt; … &lt; QKA，A23 算最小的顺子。</li>
+ *   <li>同花：不连号，比**当局顺序里最强的那张牌**，「含 7 的同花更大」符合玩家直觉。</li>
+ *   <li>单张/对子/三条/四条：老规矩，比档位权重，同档比花色。</li>
+ * </ul>
  */
 public final class CardPattern {
 
@@ -21,53 +33,150 @@ public final class CardPattern {
   public static final int PAIR = 2;
   public static final int TRIPLE = 3;
   public static final int QUAD = 4;
+  public static final int STRAIGHT = 5;
+  public static final int FLUSH = 6;
+  public static final int STRAIGHT_FLUSH = 7;
 
   private final int type;
-  /** 主牌档位：普通点数或 JOKER */
+  /** 代表牌的档位：普通牌是主点数，顺子是顶端那张 */
   private final String mainToken;
   private final List<Card> cards;
-  /** 这手牌里最大的那张，用于同档位内的次级比较 */
+  /** 当局强度最大的那张，用于同档位内的次级比较 */
   private final Card topCard;
+  /** 顺子顶端的自然点数（非顺子为 0） */
+  private final int straightTop;
 
-  private CardPattern(int type, String mainToken, List<Card> cards, Card topCard) {
+  private CardPattern(int type, String mainToken, List<Card> cards, Card topCard, int straightTop) {
     this.type = type;
     this.mainToken = mainToken;
     this.cards = cards;
     this.topCard = topCard;
+    this.straightTop = straightTop;
   }
 
   /**
-   * 识别牌型。不合法返回 null：
-   * 张数不在 1~4，或点数不一致（王统一视作 JOKER 一档）
+   * 识别牌型。不合法返回 null。
+   *
+   * 判定优先级：同点数（四条/三条/对子/单张）> 同花顺 > 同花 > 顺子
+   * —— 三张既同花又连号时算同花顺，比同花和顺子都大
    */
   public static CardPattern of(List<Card> cards) {
     if (cards == null || cards.isEmpty() || cards.size() > 4) {
       return null;
     }
+
     Set<String> tokens = new LinkedHashSet<>();
-    Card top = null;
     for (Card card : cards) {
       tokens.add(card.token());
-      if (top == null || better(card, top)) {
-        top = card;
-      }
     }
-    if (tokens.size() != 1) {
+    Card top = topCard(cards);
+
+    // 同一点数：单张 / 对子 / 三条 / 四条（王统一算一档）
+    if (tokens.size() == 1) {
+      return new CardPattern(cards.size(), tokens.iterator().next(), cards, top, 0);
+    }
+
+    // 不同点数只有三张牌才有别的牌型
+    if (cards.size() != 3) {
       return null;
     }
-    int type = cards.size();
-    return new CardPattern(type, tokens.iterator().next(), cards, top);
-  }
 
-  /** 同一档位内比大小：花色优先，再看是不是大王 */
-  private static boolean better(Card a, Card b) {
-    return a.tieBreak() > b.tieBreak();
+    boolean flush = isFlush(cards);
+    int topRank = straightTop(cards);
+
+    if (flush && topRank > 0) {
+      return new CardPattern(STRAIGHT_FLUSH, tokenOfRank(cards, topRank), cards, top, topRank);
+    }
+    if (flush) {
+      return new CardPattern(FLUSH, top.token(), cards, top, 0);
+    }
+    if (topRank > 0) {
+      return new CardPattern(STRAIGHT, tokenOfRank(cards, topRank), cards, top, topRank);
+    }
+    return null;
   }
 
   /**
-   * 我能不能压过 other
-   * 必须同牌型（同张数），然后比权重、比花色
+   * 这手牌里「最大的那张」：先比自然点数，同点数再比花色
+   * 同点数的三条/对子因此取花色最大的那张，和原来按 tieBreak 选是一致的
    */
+  private static Card topCard(List<Card> cards) {
+    Card best = null;
+    for (Card card : cards) {
+      if (best == null
+        || card.rankValue() > best.rankValue()
+        || (card.rankValue() == best.rankValue() && card.tieBreak() > best.tieBreak())) {
+        best = card;
+      }
+    }
+    return best;
+  }
+
+  /** 三张同花色（王没有花色，不参与） */
+  private static boolean isFlush(List<Card> cards) {
+    char suit = 0;
+    for (Card card : cards) {
+      if (card.isJoker()) {
+        return false;
+      }
+      if (suit == 0) {
+        suit = card.suit();
+      } else if (card.suit() != suit) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 三张连号时顶端的自然点数；不连号返回 0
+   * A 可大可小：QKA 的顶端是 14，A23 的顶端是 3（最小的顺子）
+   */
+  private static int straightTop(List<Card> cards) {
+    int[] v = new int[cards.size()];
+    for (int i = 0; i < cards.size(); i++) {
+      Card card = cards.get(i);
+      if (card.isJoker()) {
+        return 0; // 王不能凑顺子
+      }
+      v[i] = card.rankValue();
+    }
+
+    Arrays.sort(v);
+    if (isSequence(v)) {
+      return v[v.length - 1];
+    }
+
+    // A 当 1 再试一次：{14,2,3} -> {1,2,3}
+    int[] alt = v.clone();
+    for (int i = 0; i < alt.length; i++) {
+      if (alt[i] == 14) alt[i] = 1;
+    }
+    Arrays.sort(alt);
+
+    return isSequence(alt) ? alt[alt.length - 1] : 0;
+  }
+
+  private static boolean isSequence(int[] sorted) {
+    for (int i = 1; i < sorted.length; i++) {
+      if (sorted[i] != sorted[i - 1] + 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** 顺子顶端那张牌的档位（A23 取到的是 3 不是 A） */
+  private static String tokenOfRank(List<Card> cards, int rank) {
+    for (Card card : cards) {
+      if (card.rankValue() == rank) {
+        return card.token();
+      }
+    }
+    return "";
+  }
+
+  /** 我能不能压过 other：同牌型同张数，再比大小 */
   public boolean beats(CardPattern other, Map<String, Integer> weights) {
     if (other == null) {
       return true;
@@ -75,14 +184,28 @@ public final class CardPattern {
     if (this.type != other.type) {
       return false;
     }
-    Integer mine = weights.get(this.mainToken);
-    Integer theirs = weights.get(other.mainToken);
-    int w1 = mine == null ? 0 : mine;
-    int w2 = theirs == null ? 0 : theirs;
-    if (w1 != w2) {
-      return w1 > w2;
+    return this.key(weights) > other.key(weights);
+  }
+
+  /**
+   * 同类内的可比键：顺子走自然点数，其余走「当局最强的那张牌」
+   *
+   * 之所以不用 mainToken 直接查权重：同花里 mainToken 是展示用的最大点数牌，
+   * 而当局顺序是乱的（7 最大），两张牌谁强得真去查权重表才知道。
+   */
+  private int key(Map<String, Integer> weights) {
+    if (type == STRAIGHT || type == STRAIGHT_FLUSH) {
+      return straightTop * 100 + topCard.tieBreak();
     }
-    return this.topCard.tieBreak() > other.topCard.tieBreak();
+    int best = 0;
+    for (Card card : cards) {
+      Integer w = weights.get(card.token());
+      int k = (w == null ? 0 : w) * 100 + card.tieBreak();
+      if (k > best) {
+        best = k;
+      }
+    }
+    return best;
   }
 
   /** 分牌分值：5=5，10=10，K=10，其余 0（每副合计 100） */
@@ -112,6 +235,12 @@ public final class CardPattern {
         return "三条";
       case QUAD:
         return "四条";
+      case STRAIGHT:
+        return "顺子";
+      case FLUSH:
+        return "同花";
+      case STRAIGHT_FLUSH:
+        return "同花顺";
       default:
         return "未知";
     }

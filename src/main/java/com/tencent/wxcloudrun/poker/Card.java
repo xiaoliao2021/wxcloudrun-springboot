@@ -147,6 +147,37 @@ public final class Card {
   }
 
   /**
+   * 自然点数：2~10 按面值，J=11 Q=12 K=13 A=14；王返回 0（不参与顺子）
+   *
+   * 和 token() 不是一回事：token 是「顺序表里的档位」（7 最大），
+   * 这里是扑克原本的点数大小，只有判顺子连号时才用。
+   */
+  public int rankValue() {
+    if (joker) {
+      return 0;
+    }
+    switch (rank) {
+      case 'T':
+        return 10;
+      case 'J':
+        return 11;
+      case 'Q':
+        return 12;
+      case 'K':
+        return 13;
+      case 'A':
+        return 14;
+      default:
+        return rank >= '2' && rank <= '9' ? rank - '0' : 0;
+    }
+  }
+
+  /** 花色字符（王是 'X'） */
+  public char suit() {
+    return suit;
+  }
+
+  /**
    * 同一档位内的「次级比较值」：花色序 * 2 + 王种
    * 让 大王 > 小王，同时 黑桃 > 红桃 > 梅花 > 方块
    */
