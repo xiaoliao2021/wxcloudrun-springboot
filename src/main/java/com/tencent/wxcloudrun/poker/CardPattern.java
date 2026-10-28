@@ -14,9 +14,17 @@ import java.util.Set;
  * <pre>
  *   1 单张   2 对子   3 三条   4 四条       —— 必须同一点数（王同属 JOKER 一档）
  *   5 顺子   6 同花   7 同花顺              —— 固定三张
+ *   8 510K  9 同花510K                      —— 固定三张，炸弹
  * </pre>
  *
- * 压牌仍然要求「同牌型、同张数」，所以不同牌型之间不需要互相定大小。
+ * 张数不同的牌型永远不能互压（对子压不了单张，四条压不了三条）。
+ * 同为三张时**完全按牌型层级**比，不同牌型之间也能互压：
+ * <pre>
+ *   顺子 &lt; 同花 &lt; 三条 &lt; 同花顺 &lt; 510K &lt; 同花510K
+ * </pre>
+ * 层级高的压层级低的（三条压同花、同花压顺子、同花顺压三条），
+ * 层级相同必然是同一牌型，这时才比内部大小。
+ * 单张 / 对子 / 四条不在这个序列里，仍然只能跟同牌型比。
  *
  * 同类之间的比较口径不一样，别混：
  * <ul>
@@ -24,6 +32,7 @@ import java.util.Set;
  *       拿它去比连号会得到「345 = 456」「789 最大、8910 突然变小」这种荒谬结果，
  *       所以连号一律按扑克本来的点数排：234 &lt; 345 &lt; … &lt; QKA，A23 算最小的顺子。</li>
  *   <li>同花：不连号，比**当局顺序里最强的那张牌**，「含 7 的同花更大」符合玩家直觉。</li>
+ *   <li>510K：三张牌的身份是固定的，直接比**那张 K 的花色**，不受 order 配置影响。</li>
  *   <li>单张/对子/三条/四条：老规矩，比档位权重，同档比花色。</li>
  * </ul>
  */
@@ -36,6 +45,10 @@ public final class CardPattern {
   public static final int STRAIGHT = 5;
   public static final int FLUSH = 6;
   public static final int STRAIGHT_FLUSH = 7;
+  /** 5 10 K 各一张（炸弹） */
+  public static final int FIVE_TEN_K = 8;
+  /** 5 10 K 各一张且同花色（最大的炸弹） */
+  public static final int FLUSH_FIVE_TEN_K = 9;
 
   private final int type;
   /** 代表牌的档位：普通牌是主点数，顺子是顶端那张 */
@@ -57,8 +70,8 @@ public final class CardPattern {
   /**
    * 识别牌型。不合法返回 null。
    *
-   * 判定优先级：同点数（四条/三条/对子/单张）> 同花顺 > 同花 > 顺子
-   * —— 三张既同花又连号时算同花顺，比同花和顺子都大
+   * 判定优先级：同点数（四条/三条/对子/单张）> 510K > 同花顺 > 同花 > 顺子
+   * —— 5 10 K 必须放在同花之前判，否则同花色的 510K 会被误判成普通同花
    */
   public static CardPattern of(List<Card> cards) {
     if (cards == null || cards.isEmpty() || cards.size() > 4) {
@@ -83,6 +96,11 @@ public final class CardPattern {
 
     boolean flush = isFlush(cards);
     int topRank = straightTop(cards);
+
+    // 510K：三张正好是 5 / 10 / K 各一张。同花色时单列成「同花510K」，比普通 510K 大
+    if (isFiveTenK(cards)) {
+      return new CardPattern(flush ? FLUSH_FIVE_TEN_K : FIVE_TEN_K, "K", cards, top, 0);
+    }
 
     if (flush && topRank > 0) {
       return new CardPattern(STRAIGHT_FLUSH, tokenOfRank(cards, topRank), cards, top, topRank);
@@ -126,6 +144,39 @@ public final class CardPattern {
       }
     }
     return true;
+  }
+
+  /**
+   * 三张正好是 5 / 10 / K 各一张
+   * 多副牌时也不允许拿两张 5 凑数（5 5 K 不是 510K）
+   */
+  private static boolean isFiveTenK(List<Card> cards) {
+    if (cards.size() != 3) {
+      return false;
+    }
+
+    boolean five = false;
+    boolean ten = false;
+    boolean king = false;
+
+    for (Card card : cards) {
+      if (card.isJoker()) {
+        return false;
+      }
+
+      String token = card.token();
+      if ("5".equals(token) && !five) {
+        five = true;
+      } else if ("10".equals(token) && !ten) {
+        ten = true;
+      } else if ("K".equals(token) && !king) {
+        king = true;
+      } else {
+        return false;
+      }
+    }
+
+    return five && ten && king;
   }
 
   /**
@@ -176,19 +227,71 @@ public final class CardPattern {
     return "";
   }
 
-  /** 我能不能压过 other：同牌型同张数，再比大小 */
+  /**
+   * 三张牌型之间的大小层级：顺子 &lt; 同花 &lt; 三条 &lt; 同花顺 &lt; 510K &lt; 同花510K
+   *
+   * 返回 0 表示「不在这个序列里」（单张 / 对子 / 四条），它们走老规矩：只跟同牌型比。
+   */
+  private int tier() {
+    switch (type) {
+      case STRAIGHT:
+        return 1;
+      case FLUSH:
+        return 2;
+      case TRIPLE:
+        return 3;
+      case STRAIGHT_FLUSH:
+        return 4;
+      case FIVE_TEN_K:
+        return 5;
+      case FLUSH_FIVE_TEN_K:
+        return 6;
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * 我能不能压过 other
+   *
+   * 张数不同永远压不了（四条压不了三条，对子压不了单张）。
+   *
+   * 同为三张时**完全按牌型层级**比，不再要求同牌型：
+   * <pre>
+   *   顺子 &lt; 同花 &lt; 三条 &lt; 同花顺 &lt; 510K &lt; 同花510K
+   * </pre>
+   * 层级高的直接压层级低的（三条能压同花、同花能压顺子）。
+   * 层级相同必然是同一个牌型，这时才比内部大小。
+   *
+   * 单张 / 对子 / 四条不在这个序列里，它们仍然只能跟同牌型比。
+   */
   public boolean beats(CardPattern other, Map<String, Integer> weights) {
     if (other == null) {
       return true;
     }
-    if (this.type != other.type) {
+    if (this.cards.size() != other.cards.size()) {
       return false;
     }
+
+    int mine = tier();
+    int theirs = other.tier();
+
+    // 不在三张序列里：单张 / 对子 / 四条，只跟同牌型比
+    if (mine == 0 || theirs == 0) {
+      return this.type == other.type && this.key(weights) > other.key(weights);
+    }
+
+    // 层级不同：高的赢，跟牌型无关
+    if (mine != theirs) {
+      return mine > theirs;
+    }
+
+    // 层级相同 = 同一个牌型，比内部大小
     return this.key(weights) > other.key(weights);
   }
 
   /**
-   * 同类内的可比键：顺子走自然点数，其余走「当局最强的那张牌」
+   * 同类内的可比键：顺子走自然点数，510K 走 K 的花色，其余走「当局最强的那张牌」
    *
    * 之所以不用 mainToken 直接查权重：同花里 mainToken 是展示用的最大点数牌，
    * 而当局顺序是乱的（7 最大），两张牌谁强得真去查权重表才知道。
@@ -196,6 +299,9 @@ public final class CardPattern {
   private int key(Map<String, Integer> weights) {
     if (type == STRAIGHT || type == STRAIGHT_FLUSH) {
       return straightTop * 100 + topCard.tieBreak();
+    }
+    if (type == FIVE_TEN_K || type == FLUSH_FIVE_TEN_K) {
+      return kingTieBreak();
     }
     int best = 0;
     for (Card card : cards) {
@@ -206,6 +312,19 @@ public final class CardPattern {
       }
     }
     return best;
+  }
+
+  /**
+   * 510K 里那张 K 的花色序，用于两个 510K 之间比大小。
+   * 不走 order 权重：510K 三张牌的身份是固定的，不该受房间配置影响。
+   */
+  private int kingTieBreak() {
+    for (Card card : cards) {
+      if ("K".equals(card.token())) {
+        return card.tieBreak();
+      }
+    }
+    return 0;
   }
 
   /** 分牌分值：5=5，10=10，K=10，其余 0（每副合计 100） */
@@ -241,6 +360,10 @@ public final class CardPattern {
         return "同花";
       case STRAIGHT_FLUSH:
         return "同花顺";
+      case FIVE_TEN_K:
+        return "510K";
+      case FLUSH_FIVE_TEN_K:
+        return "同花510K";
       default:
         return "未知";
     }

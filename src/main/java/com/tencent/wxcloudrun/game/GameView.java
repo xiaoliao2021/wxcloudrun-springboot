@@ -70,7 +70,7 @@ public final class GameView {
 
   private static List<Map<String, Object>> table(GameState g) {
     List<Map<String, Object>> list = new ArrayList<>();
-    for (GameState.PlayEntry entry : g.getTable().values()) {
+    for (GameState.PlayEntry entry : g.getTable()) {
       Map<String, Object> m = new LinkedHashMap<>(4);
       m.put("seat", entry.getSeat());
       m.put("cards", codes(entry.getCards()));

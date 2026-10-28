@@ -11,7 +11,11 @@ import java.util.Map;
 /**
  * 当局规则：把房间配置里的 order 数组翻译成权重表，并提供排序 / 比大小。
  *
- * order 是 14 个档位，从强到弱，例如经典 7鬼523：
+ * order 是 14 个档位，从强到弱。默认是常规 32AK（王最大）：
+ * <pre>
+ *   JOKER 3 2 A K Q J 10 9 8 7 6 5 4
+ * </pre>
+ * 经典 7鬼523 则是：
  * <pre>
  *   7 JOKER 5 2 3 A K Q J 10 9 8 6 4
  * </pre>
@@ -33,17 +37,19 @@ public final class RuleBook {
 
   public static RuleBook of(RoomConfig config) {
     RoomConfig c = config == null ? new RoomConfig() : config;
-    List<String> order = c.getOrder();
-    if (order == null || order.isEmpty()) {
-      order = RoomConfig.defaultOrder();
-    }
+    List<String> rawOrder = c.getOrder();
+    boolean orderProvided = rawOrder != null && !rawOrder.isEmpty();
+    List<String> order = orderProvided ? rawOrder : RoomConfig.defaultOrder();
     Map<String, Integer> weights = new HashMap<>();
     int n = order.size();
     for (int i = 0; i < n; i++) {
       weights.put(order.get(i), n - i);
     }
     int decks = c.getDeckCount() == null || c.getDeckCount() < 1 ? 1 : c.getDeckCount();
-    boolean jokers = c.getWithJokers() == null || c.getWithJokers();
+    // 档位表不管有没有鬼都含 JOKER，所以只在 order 被显式提供时才拿它当线索
+    boolean jokers = c.getWithJokers() != null
+        ? c.getWithJokers()
+        : (orderProvided && rawOrder.contains("JOKER"));
     return new RuleBook(order, weights, decks, jokers);
   }
 

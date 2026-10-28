@@ -5,10 +5,8 @@ import com.tencent.wxcloudrun.poker.CardPattern;
 import com.tencent.wxcloudrun.poker.RuleBook;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -148,8 +146,14 @@ public class GameState {
 
   private final List<Card> deck = new ArrayList<>();
   private final List<Seat> seats = new ArrayList<>();
-  /** seat -> 本轮最后一次动作，保持插入顺序方便前端展示 */
-  private final Map<Integer, PlayEntry> table = new LinkedHashMap<>();
+  /**
+   * 本轮的每一手动作，按出牌先后追加（不是 seat -> 最后一手 的映射）。
+   *
+   * 一轮里同一家可以出好几次（A 先出 -> B 压 -> A 再压回去），用 Map 会把前面的覆盖掉、
+   * 顺序也留在第一次的位置。前端按这个数组从左到右铺，所以必须是最真实的出牌序列。
+   * 收轮时清空，正好对上「一轮 = 从出牌到补牌」。
+   */
+  private final List<PlayEntry> table = new ArrayList<>();
   /** 本轮已经「要不起」的座位 */
   private final Set<Integer> passed = new LinkedHashSet<>();
 
@@ -241,7 +245,7 @@ public class GameState {
     return seats;
   }
 
-  public Map<Integer, PlayEntry> getTable() {
+  public List<PlayEntry> getTable() {
     return table;
   }
 

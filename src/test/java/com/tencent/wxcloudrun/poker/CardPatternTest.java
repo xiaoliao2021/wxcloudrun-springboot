@@ -123,27 +123,137 @@ class CardPatternTest {
   }
 
   @Test
-  void 同花顺大于同花和顺子但压不了它们() {
+  void 同花顺压得了三条同花顺子() {
     CardPattern sf = hand("5H", "6H", "7H");
-    CardPattern flush = hand("7S", "3S", "2S");
-    CardPattern straight = hand("5S", "6H", "7D");
 
     assertEquals(CardPattern.STRAIGHT_FLUSH, sf.getType());
-    // 牌型不同就压不了，不存在跨型比较
-    assertFalse(sf.beats(flush, W));
-    assertFalse(flush.beats(sf, W));
-    assertFalse(sf.beats(straight, W));
+    assertTrue(sf.beats(hand("7S", "7H", "7D"), W), "同花顺压三条");
+    assertTrue(sf.beats(hand("7S", "3S", "2S"), W), "同花顺压同花");
+    assertTrue(sf.beats(hand("5S", "6H", "7D"), W), "同花顺压顺子");
 
-    // 同型之间：同花顺也按自然点数顶端比
+    // 反方向压不了
+    assertFalse(hand("7S", "7H", "7D").beats(sf, W));
+    assertFalse(hand("7S", "3S", "2S").beats(sf, W));
+
+    // 同型之间：同花顺按自然点数顶端比
     assertTrue(hand("6H", "7H", "8H").beats(sf, W));
   }
 
   @Test
-  void 不同牌型不能互压() {
-    assertFalse(hand("7S", "7H", "7D").beats(hand("5S", "6H", "7D"), W), "三条压不了顺子");
-    assertFalse(hand("5S", "6H", "7D").beats(hand("7S", "7H", "7D"), W), "顺子压不了三条");
-    assertFalse(hand("7S", "3S", "2S").beats(hand("5S", "6H", "7D"), W), "同花压不了顺子");
+  void 三张牌型之间按层级互压() {
+    CardPattern straight = hand("5S", "6H", "7D");
+    CardPattern flush = hand("7S", "3S", "2S");
+    CardPattern triple = hand("7S", "7H", "7D");
+    CardPattern sf = hand("5H", "6H", "7H");
+
+    // 层级 顺子 < 同花 < 三条 < 同花顺，高的压低的
+    assertTrue(flush.beats(straight, W), "同花压顺子");
+    assertTrue(triple.beats(straight, W), "三条压顺子");
+    assertTrue(triple.beats(flush, W), "三条压同花");
+    assertTrue(sf.beats(triple, W), "同花顺压三条");
+
+    // 反方向：层级低的压不了层级高的
+    assertFalse(straight.beats(flush, W), "顺子压不了同花");
+    assertFalse(straight.beats(triple, W), "顺子压不了三条");
+    assertFalse(flush.beats(triple, W), "同花压不了三条");
+    assertFalse(triple.beats(sf, W), "三条压不了同花顺");
+  }
+
+  @Test
+  void 跨型压只看层级不看具体点数() {
+    // 层级高就赢，哪怕单看点数更小
+    assertTrue(hand("2S", "2H", "2D").beats(hand("7S", "3S", "2S"), W), "三条 222 压同花");
+    // 最小的同花顺（A23，注意三张要同花色）也压得过三条 777
+    assertTrue(hand("AS", "2S", "3S").beats(hand("7S", "7H", "7D"), W), "同花顺 A23 压三条");
+    // 最小的 510K 压得过最大的同花顺
+    assertTrue(hand("5D", "TD", "KD").beats(hand("QH", "KH", "AH"), W), "510K 压同花顺");
+  }
+
+  @Test
+  void 张数不同永远压不了() {
     assertFalse(hand("7S").beats(hand("7S", "7H"), W), "单张压不了对子");
+    assertFalse(hand("7S", "7H").beats(hand("7S", "7H", "7D"), W), "对子压不了三条");
+    assertFalse(hand("7S", "7H", "7D").beats(hand("7S", "7H", "7D", "7C"), W), "三条压不了四条");
+    assertFalse(hand("7S", "7H", "7D", "7C").beats(hand("7S", "7H", "7D"), W), "四条压不了三条");
+    // 三张牌型层级再高也压不了别的张数
+    assertFalse(hand("5S", "TS", "KS").beats(hand("7S", "7H", "7D", "7C"), W), "炸弹压不了四条");
+  }
+
+  @Test
+  void 判定510K() {
+    assertEquals(CardPattern.FIVE_TEN_K, hand("5S", "TH", "KD").getType());
+    assertEquals(CardPattern.FLUSH_FIVE_TEN_K, hand("5S", "TS", "KS").getType(), "同花色 510K 单列");
+
+    // 顺序无所谓，三张身份对了就行
+    assertEquals(CardPattern.FIVE_TEN_K, hand("KH", "5D", "TC").getType());
+
+    // 必须各一张：两张 5 / 两张 10 / 两张 K 都不算
+    assertNull(hand("5S", "5H", "KD"));
+    assertNull(hand("5S", "TH", "TD"));
+    assertNull(hand("5S", "TH", "KD", "KC"), "四张不合法");
+    // 差一张就不是 510K
+    assertNull(hand("5S", "9H", "KD"));
+    assertNull(hand("4S", "TH", "KD"));
+    assertNull(hand("5S", "TH", "QD"));
+    // 王不能顶替其中任何一张
+    assertNull(hand("XR", "TH", "KD"));
+    assertNull(hand("5S", "XB", "KD"));
+    assertNull(hand("5S", "TH", "XR"));
+
+    assertEquals("K", hand("5S", "TH", "KD").getMainToken());
+  }
+
+  @Test
+  void 炸弹能跨型压任意三张() {
+    CardPattern bomb = hand("5S", "TH", "KD");
+    CardPattern flushBomb = hand("5S", "TS", "KS");
+
+    assertTrue(bomb.beats(hand("5H", "6H", "7H"), W), "510K 压同花顺");
+    assertTrue(bomb.beats(hand("7S", "7H", "7D"), W), "510K 压三条");
+    assertTrue(bomb.beats(hand("7S", "3S", "2S"), W), "510K 压同花");
+    assertTrue(bomb.beats(hand("5C", "6H", "7D"), W), "510K 压顺子");
+    assertTrue(flushBomb.beats(hand("5H", "6H", "7H"), W), "同花510K 压同花顺");
+
+    // 同花510K > 510K
+    assertTrue(flushBomb.beats(bomb, W));
+    assertFalse(bomb.beats(flushBomb, W));
+
+    // 反方向：普通三张压不了炸弹
+    assertFalse(hand("5H", "6H", "7H").beats(bomb, W), "同花顺压不了 510K");
+    assertFalse(hand("7S", "7H", "7D").beats(bomb, W), "三条压不了 510K");
+    assertFalse(hand("7S", "3S", "2S").beats(bomb, W), "同花压不了 510K");
+    assertFalse(hand("5C", "6H", "7D").beats(bomb, W), "顺子压不了 510K");
+  }
+
+  @Test
+  void 两个510K比K的花色() {
+    // 黑桃 K > 红桃 K > 梅花 K > 方块 K
+    assertTrue(hand("5S", "TH", "KS").beats(hand("5H", "TS", "KH"), W));
+    assertFalse(hand("5H", "TS", "KH").beats(hand("5S", "TH", "KS"), W));
+    assertTrue(hand("5C", "TD", "KC").beats(hand("5S", "TH", "KD"), W));
+    assertTrue(hand("5S", "TS", "KS").beats(hand("5H", "TS", "KH"), W), "同花510K 同样比 K 的花色");
+
+    // 花色一样就是压不过自己
+    assertFalse(hand("5S", "TH", "KS").beats(hand("5H", "TS", "KS"), W));
+  }
+
+  @Test
+  void 炸弹也压不了别的张数() {
+    CardPattern bomb = hand("5S", "TH", "KD");
+
+    assertFalse(bomb.beats(hand("7S", "7H", "7D", "7C"), W), "三张压不了四条");
+    assertFalse(hand("7S", "7H", "7D", "7C").beats(bomb, W), "四条压不了三张");
+    assertFalse(bomb.beats(hand("7S"), W), "三张压不了单张");
+    assertFalse(hand("7S").beats(bomb, W), "单张压不了三张");
+    assertFalse(bomb.beats(hand("7S", "7H"), W), "三张压不了对子");
+  }
+
+  @Test
+  void 分值和牌型名覆盖510K() {
+    assertEquals(25, hand("5S", "TH", "KD").score(), "5 + 10 + 10");
+    assertEquals(25, hand("5S", "TS", "KS").score());
+    assertEquals("510K", hand("5S", "TH", "KD").typeName());
+    assertEquals("同花510K", hand("5S", "TS", "KS").typeName());
   }
 
   @Test

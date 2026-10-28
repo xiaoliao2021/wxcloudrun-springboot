@@ -37,6 +37,8 @@ public class RoomServiceImpl implements RoomService {
 
   private static final int MAX_PLAYER_LIMIT = 5;
   private static final int MIN_PLAYER = 2;
+  /** 缺省人数：与前端 DEFAULT_CONFIG.playerCount 保持一致 */
+  private static final int DEFAULT_PLAYER = 4;
 
   private final Logger logger = LoggerFactory.getLogger(RoomServiceImpl.class);
 
@@ -342,7 +344,11 @@ public class RoomServiceImpl implements RoomService {
 
   private RoomConfig normalize(RoomConfig config) {
     RoomConfig result = config == null ? new RoomConfig() : config;
-    if (result.getPlayerCount() == null || result.getPlayerCount() < MIN_PLAYER) {
+    // 没传 -> 用默认 4 人；传了非法值 -> 夹到 [MIN_PLAYER, MAX_PLAYER_LIMIT]
+    if (result.getPlayerCount() == null) {
+      result.setPlayerCount(DEFAULT_PLAYER);
+    }
+    if (result.getPlayerCount() < MIN_PLAYER) {
       result.setPlayerCount(MIN_PLAYER);
     }
     if (result.getPlayerCount() > MAX_PLAYER_LIMIT) {
@@ -351,11 +357,15 @@ public class RoomServiceImpl implements RoomService {
     if (result.getDeckCount() == null || result.getDeckCount() < 1) {
       result.setDeckCount(1);
     }
-    if (result.getWithJokers() == null) {
-      result.setWithJokers(true);
-    }
-    if (result.getOrder() == null || result.getOrder().isEmpty()) {
+    // 顺序是 14 档权重表，不管有没有鬼都含 JOKER 档（withJokers 只决定发不发鬼牌），
+    // 所以「含不含鬼」只能在客户端**显式传了 order** 时作为线索，而且要在补默认值之前判。
+    List<String> rawOrder = result.getOrder();
+    boolean orderProvided = rawOrder != null && !rawOrder.isEmpty();
+    if (!orderProvided) {
       result.setOrder(RoomConfig.defaultOrder());
+    }
+    if (result.getWithJokers() == null) {
+      result.setWithJokers(orderProvided && rawOrder.contains("JOKER"));
     }
     return result;
   }
@@ -395,15 +405,19 @@ public class RoomServiceImpl implements RoomService {
     return vos;
   }
 
+  /**
+   * 从库里读配置，永远返回一份填满的配置
+   * （RoomConfig 的字段没有初始值，不兜底的话上层拆箱会 NPE）
+   */
   private RoomConfig readConfig(Room room) {
     if (room.getOptions() == null || room.getOptions().isEmpty()) {
-      return new RoomConfig();
+      return normalize(null);
     }
     try {
-      RoomConfig config = objectMapper.readValue(room.getOptions(), RoomConfig.class);
-      return config == null ? new RoomConfig() : config;
+      return normalize(objectMapper.readValue(room.getOptions(), RoomConfig.class));
     } catch (Exception e) {
-      return new RoomConfig();
+      logger.warn("房间 {} 的配置解析失败，按默认配置处理", room.getId(), e);
+      return normalize(null);
     }
   }
 

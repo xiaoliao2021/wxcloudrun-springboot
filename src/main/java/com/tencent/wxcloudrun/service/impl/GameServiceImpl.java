@@ -216,7 +216,8 @@ public class GameServiceImpl implements GameService {
         me.setFinished(true);
       }
 
-      state.getTable().put(me.getSeat(),
+      // 追加而不是覆盖：同一家一轮里可以出好几手，每一手都要留在桌面上
+      state.getTable().add(
           new GameState.PlayEntry(me.getSeat(), pattern.getCards(), pattern.getType(), false));
       state.getPassed().clear();
       state.setTopPlay(pattern);
@@ -248,7 +249,7 @@ public class GameServiceImpl implements GameService {
       }
 
       state.getPassed().add(me.getSeat());
-      state.getTable().put(me.getSeat(),
+      state.getTable().add(
           new GameState.PlayEntry(me.getSeat(), Collections.emptyList(), 0, true));
 
       recordPlay(state, me, GamePlay.ACTION_PASS, null);

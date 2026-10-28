@@ -191,7 +191,19 @@ public class AuthServiceImpl implements AuthService {
 
   @Override
   public UserVo updateProfile(Long userId, ProfileRequest request) {
-    if (request == null || isBlank(request.getEncryptedData()) || isBlank(request.getIv())) {
+    if (request == null) {
+      throw new BizException(ErrorCode.PARAM_ERROR.getCode(), "缺少参数");
+    }
+
+    // 新链路：wx.getUserProfile 直接给明文昵称头像，不用解密、也不依赖 session_key
+    String plainNickname = request.getNickname() == null ? "" : request.getNickname().trim();
+    String plainAvatar = request.getAvatarUrl() == null ? "" : request.getAvatarUrl().trim();
+    if (!plainNickname.isEmpty() || !plainAvatar.isEmpty()) {
+      return updatePlainProfile(userId, plainNickname, plainAvatar);
+    }
+
+    // 老链路：wx.createUserInfoButton 的 encryptedData + iv，走 session_key 解密
+    if (isBlank(request.getEncryptedData()) || isBlank(request.getIv())) {
       throw new BizException(ErrorCode.PARAM_ERROR.getCode(), "缺少 encryptedData 或 iv");
     }
     User user = userMapper.selectById(userId);
@@ -227,6 +239,36 @@ public class AuthServiceImpl implements AuthService {
     update.setGender(json.path("gender").asInt(0));
     update.setUnionid(json.path("unionId").asText(""));
     userMapper.updateProfileById(update);
+
+    return UserVo.from(userMapper.selectById(userId), false);
+  }
+
+  /**
+   * 明文头像昵称（wx.getUserProfile 的结果）
+   *
+   * 昵称头像只是展示用，客户端可以随便编，所以这里只做长度和地址格式的兜底，
+   * 不当身份依据 —— 真正的身份一直是 openid。
+   * 空值不覆盖：mapper 的 if 判空本来就不会写空字段。
+   */
+  private UserVo updatePlainProfile(Long userId, String nickname, String avatarUrl) {
+    if (nickname.length() > 24) {
+      nickname = nickname.substring(0, 24);
+    }
+    if (avatarUrl.length() > 512) {
+      avatarUrl = avatarUrl.substring(0, 512);
+    }
+    if (!avatarUrl.isEmpty() && !avatarUrl.startsWith("http://") && !avatarUrl.startsWith("https://")) {
+      throw new BizException(ErrorCode.PARAM_ERROR.getCode(), "头像地址不合法");
+    }
+
+    User update = new User();
+    update.setId(userId);
+    update.setNickname(nickname);
+    update.setAvatarUrl(avatarUrl);
+    userMapper.updateProfileById(update);
+
+    logger.info("profile updated (plain), userId={}, nickname={}, avatar={}",
+        userId, nickname, avatarUrl.isEmpty() ? "-" : "yes");
 
     return UserVo.from(userMapper.selectById(userId), false);
   }

@@ -8,6 +8,18 @@ import lombok.Data;
 @Data
 public class ProfileRequest {
 
+  /**
+   * 明文昵称（wx.getUserProfile 直接给的）
+   * 仅展示用，不作为信任依据
+   */
+  private String nickname;
+
+  /**
+   * 明文头像地址（wx.getUserProfile 直接给的）
+   * 仅展示用，不作为信任依据
+   */
+  private String avatarUrl;
+
   /** wx.createUserInfoButton 回调里的密文 */
   private String encryptedData;
 
