@@ -24,8 +24,10 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -92,6 +94,10 @@ public class GameServiceImpl implements GameService {
           ErrorCode.ROOM_NEED_MORE_PLAYER.getMessage());
     }
 
+    // 每次开局都必须是全新的一局：先把这个房间残留的进行中对局清掉
+    // （正常走结算的局已经出内存了，这里兜的是异常残留，避免同一房间挂着两局）
+    abortActiveByRoom(roomId);
+
     RuleBook ruleBook = RuleBook.of(room.getConfig());
     long seed = System.nanoTime();
     List<Card> deck = ruleBook.newDeck();
@@ -157,6 +163,33 @@ public class GameServiceImpl implements GameService {
   }
 
   /**
+   * 开局前清掉该房间残留的进行中对局（异常终止），保证「每次开局都是全新的一局」。
+   *
+   * 只改内存 + 把库里的行置为异常终止，不动房间状态——
+   * 房间状态由 RoomService.start 管，这里回退会把它刚置成的 playing 又改回 lobby。
+   */
+  private void abortActiveByRoom(long roomId) {
+    for (GameState state : games.values()) {
+      if (state.isEnded() || state.getRoomId() != roomId) {
+        continue;
+      }
+      synchronized (state) {
+        state.setStatus(GameState.STATUS_ENDED);
+        state.setReason("aborted");
+        state.bumpRevision();
+        try {
+          gameMapper.updateStatus(state.getId(), Game.STATUS_ABORTED);
+        } catch (Exception e) {
+          logger.warn("残留对局置为异常终止失败 gameId={}: {}", state.getId(), e.getMessage());
+        }
+        pushAll(state);
+      }
+      games.remove(state.getId());
+      logger.warn("开局前清理残留对局 gameId={}, roomId={}", state.getId(), roomId);
+    }
+  }
+
+  /**
    * 一人一张轮着发：第 i 家拿 index 为 i, i+n, i+2n … 的牌，剩下的留在牌堆
    */
   private void dealHands(GameState state, List<Card> deck, int handSize) {
@@ -209,26 +242,9 @@ public class GameServiceImpl implements GameService {
             ErrorCode.GAME_CANNOT_BEAT.getMessage() + "（需要同牌型同张数且更大）");
       }
 
-      // 通过校验，落到状态上
-      hand.clear();
-      hand.addAll(remaining);
-      if (hand.isEmpty()) {
-        me.setFinished(true);
-      }
-
-      // 追加而不是覆盖：同一家一轮里可以出好几手，每一手都要留在桌面上
-      state.getTable().add(
-          new GameState.PlayEntry(me.getSeat(), pattern.getCards(), pattern.getType(), false));
-      state.getPassed().clear();
-      state.setTopPlay(pattern);
-      state.setTopSeat(me.getSeat());
-      state.addTrickScore(pattern.score());
-
-      recordPlay(state, me, GamePlay.ACTION_PLAY, pattern);
-      state.setReason("play");
-      state.bumpRevision();
-
+      applyPlay(state, me, pattern, parsed);
       afterAction(state);
+      drive(state);
       pushAll(state);
     }
   }
@@ -248,20 +264,334 @@ public class GameServiceImpl implements GameService {
             ErrorCode.GAME_ALREADY_PASSED.getMessage());
       }
 
-      state.getPassed().add(me.getSeat());
-      state.getTable().add(
-          new GameState.PlayEntry(me.getSeat(), Collections.emptyList(), 0, true));
-
-      recordPlay(state, me, GamePlay.ACTION_PASS, null);
-      state.setReason("pass");
-      state.bumpRevision();
-
+      applyPass(state, me);
       afterAction(state);
+      drive(state);
       pushAll(state);
     }
   }
 
   /* ---------------- 回合推进 ---------------- */
+
+  /**
+   * 出牌的「落状态」部分（不含校验 / 回合推进），play 与代打机器人共用
+   */
+  private void applyPlay(GameState state, GameState.Seat seat, CardPattern pattern, List<Card> cards) {
+    List<Card> hand = seat.getHand();
+    // 逐张移除（多副牌同编码可能有多张，只移出被打出的这几张，不能 removeAll 一次删光）
+    List<Card> remaining = new ArrayList<>(hand);
+    for (Card card : cards) {
+      remaining.remove(card);
+    }
+    hand.clear();
+    hand.addAll(remaining);
+    if (hand.isEmpty()) {
+      seat.setFinished(true);
+    }
+
+    // 追加而不是覆盖：同一家一轮里可以出好几手，每一手都要留在桌面上
+    state.getTable().add(
+        new GameState.PlayEntry(seat.getSeat(), pattern.getCards(), pattern.getType(), false));
+    state.getPassed().clear();
+    state.setTopPlay(pattern);
+    state.setTopSeat(seat.getSeat());
+    state.addTrickScore(pattern.score());
+
+    recordPlay(state, seat, GamePlay.ACTION_PLAY, pattern);
+    state.setReason("play");
+    state.bumpRevision();
+  }
+
+  /**
+   * 要不起的「落状态」部分（不含校验 / 回合推进），pass 与代打机器人共用
+   */
+  private void applyPass(GameState state, GameState.Seat seat) {
+    state.getPassed().add(seat.getSeat());
+    state.getTable().add(
+        new GameState.PlayEntry(seat.getSeat(), Collections.emptyList(), 0, true));
+
+    recordPlay(state, seat, GamePlay.ACTION_PASS, null);
+    state.setReason("pass");
+    state.bumpRevision();
+  }
+
+  /**
+   * 主动离开对局（彻底出局）：标记该玩家「已离开 + 托管 + 出局」，若正好轮到他则立即代打。
+   * 对局继续（不会解散），其他在场玩家照常进行。
+   *
+   * 出局后 `findActiveByUser` 跳过该座位，`/v1/games/current` 不再返回这局，play/pass 也会被
+   * requireTurn 拒掉 —— 所以「回小程序检测对局」那条路回不来。只有房间页的「观战」入口会
+   * 先问一句要不要回归（见 rejoin）。
+   */
+  @Override
+  public void leave(Long userId, String gameId) {
+    Long id = parseGameId(gameId);
+    if (id == null) {
+      return;
+    }
+    GameState state = games.get(id);
+    if (state == null || state.isEnded()) {
+      return;
+    }
+    synchronized (state) {
+      GameState.Seat seat = state.seatOf(userId == null ? -1L : userId);
+      if (seat == null || seat.isQuit()) {
+        return;
+      }
+      seat.setLeft(true);
+      seat.setAutoHost(true);
+      seat.setQuit(true);
+      drive(state);
+      pushAll(state);
+    }
+  }
+
+  /**
+   * 按房间把玩家从进行中的对局里踢出局。
+   * 退出房间时调用：房间成员表已经把他删了，但内存里的对局座位还在，
+   * 不标托管的话轮到他时没人出牌，整局会卡死。
+   */
+  @Override
+  public void quitByRoom(Long userId, Long roomId) {
+    if (userId == null || roomId == null) {
+      return;
+    }
+    for (GameState state : games.values()) {
+      if (state.isEnded() || state.getRoomId() != roomId) {
+        continue;
+      }
+      synchronized (state) {
+        if (state.seatOf(userId) == null) {
+          break;
+        }
+      }
+      leave(userId, "g_" + state.getId());
+      return;
+    }
+  }
+
+  /**
+   * 我在这个房间进行中对局里的座位情况。
+   * 和 findActiveByUser 的区别只有一个：**不跳过 quit 的座位** ——
+   * 房间页要在「我已经退局、当前托管代打」时问一句「要不要回到对局」。
+   */
+  @Override
+  public Map<String, Object> mySeatInRoom(Long userId, Long roomId) {
+    if (userId == null || roomId == null) {
+      return null;
+    }
+    for (GameState state : games.values()) {
+      if (state.isEnded() || state.getRoomId() != roomId) {
+        continue;
+      }
+      GameState.Seat seat = state.seatOf(userId);
+      if (seat == null) {
+        continue;
+      }
+      Map<String, Object> m = new LinkedHashMap<>(8);
+      m.put("gameId", "g_" + state.getId());
+      m.put("roomId", "r_" + state.getRoomId());
+      m.put("seat", seat.getSeat());
+      m.put("quit", seat.isQuit());
+      m.put("autoHost", seat.isAutoHost());
+      m.put("left", seat.isLeft());
+      m.put("finished", seat.isFinished());
+      // 牌已经出完就没必要问「回来接着打」了，让他安心观战等结算
+      m.put("canRejoin", seat.isQuit() && !seat.isFinished());
+      return m;
+    }
+    return null;
+  }
+
+  /**
+   * 回归对局：清掉 leave() 打上的三个标记，把控制权还给本人。
+   *
+   * 退局期间是托管在代打，手牌就是真实的剩余牌，所以回来接着打不需要重发。
+   * 推一次全量，其他人那边的「托管中」标记也会同步消失。
+   */
+  @Override
+  public void rejoin(Long userId, String gameId) {
+    Long id = parseGameId(gameId);
+    if (id == null) {
+      throw new BizException(ErrorCode.PARAM_ERROR.getCode(), "缺少 gameId");
+    }
+    GameState state = games.get(id);
+    if (state == null || state.isEnded()) {
+      throw new BizException(ErrorCode.GAME_NOT_FOUND.getCode(), "对局已结束，回不到这一局了");
+    }
+    synchronized (state) {
+      GameState.Seat seat = state.seatOf(userId == null ? -1L : userId);
+      if (seat == null) {
+        throw new BizException(ErrorCode.GAME_NOT_FOUND.getCode(), "你不在这一局里");
+      }
+      if (seat.isFinished()) {
+        throw new BizException(ErrorCode.GAME_NOT_FOUND.getCode(), "你的牌已经出完了，等这局结算吧");
+      }
+      seat.setLeft(false);
+      seat.setAutoHost(false);
+      seat.setQuit(false);
+      // 换一个 reason，客户端就不会把它当成 dealt 去重放开场动画
+      state.setReason("rejoin");
+      state.bumpRevision();
+      pushAll(state);
+    }
+  }
+
+  /**
+   * 轮到「已离开 + 托管」的玩家时，由服务端代打，循环推进直到轮到在场玩家或本局结束。
+   *
+   * 在 play / pass / leave 的 synchronized 块内调用，直接改状态、不重复加锁。
+   * 用带上限的循环而非递归，避免长串「全员离开」连锁把栈打爆。
+   */
+  private void drive(GameState state) {
+    int guard = 0;
+    while (!state.isEnded()) {
+      GameState.Seat seat = state.seatAt(state.getTurnSeat());
+      if (seat == null || seat.isFinished() || !seat.isLeft() || !seat.isAutoHost()) {
+        break;
+      }
+      BotMove move = decideBot(state, seat);
+      if (move.pass) {
+        applyPass(state, seat);
+      } else {
+        CardPattern pattern = CardPattern.of(move.cards);
+        if (pattern == null) {
+          // 理论上不会发生（decideBot 只产出合法牌），兜底过牌
+          applyPass(state, seat);
+        } else {
+          applyPlay(state, seat, pattern, move.cards);
+        }
+      }
+      afterAction(state);
+      if (++guard > 300) {
+        logger.warn("drive 触发上限，gameId={}（疑似全员离开的极端局面）", state.getId());
+        break;
+      }
+    }
+  }
+
+  /**
+   * 代打决策：首出打最小单张；跟牌找能压过当前最大牌的「最弱一手」，压不过则过牌。
+   * 顺子 / 同花 / 同花顺较复杂，机器人不主动凑（压不过就过），其余牌型按点数/张数匹配。
+   */
+  private BotMove decideBot(GameState state, GameState.Seat seat) {
+    RuleBook rb = state.getRuleBook();
+    List<Card> hand = seat.getHand();
+    CardPattern top = state.getTopPlay();
+
+    // 首出：必须出牌，打最小单张
+    if (top == null) {
+      Card smallest = rb.smallest(hand);
+      if (smallest == null) {
+        return new BotMove(true, null);
+      }
+      return new BotMove(false, Collections.singletonList(smallest));
+    }
+
+    // 跟牌：只在与当前牌同张数的候选里找能压过的
+    int need = top.getCards().size();
+    Map<String, List<Card>> groups = new LinkedHashMap<>();
+    for (Card c : hand) {
+      groups.computeIfAbsent(c.token(), (k) -> new ArrayList<>()).add(c);
+    }
+
+    List<Card> best = null;
+    int bestStrength = Integer.MAX_VALUE;
+
+    if (need == 1) {
+      for (List<Card> g : groups.values()) {
+        List<Card> one = Collections.singletonList(g.get(0));
+        if (botBeats(rb, one, top) && botStrength(rb, one) < bestStrength) {
+          best = one;
+          bestStrength = botStrength(rb, one);
+        }
+      }
+    } else if (need == 2) {
+      for (List<Card> g : groups.values()) {
+        if (g.size() >= 2) {
+          List<Card> two = Arrays.asList(g.get(0), g.get(1));
+          if (botBeats(rb, two, top) && botStrength(rb, two) < bestStrength) {
+            best = two;
+            bestStrength = botStrength(rb, two);
+          }
+        }
+      }
+    } else if (need == 3) {
+      if (top.getType() == CardPattern.FIVE_TEN_K || top.getType() == CardPattern.FLUSH_FIVE_TEN_K) {
+        // 当前是 510K 家族：试着凑 5/10/K，凑不出就只能过
+        Card five = null;
+        Card ten = null;
+        Card king = null;
+        for (Card c : hand) {
+          if ("5".equals(c.token()) && five == null) {
+            five = c;
+          } else if ("10".equals(c.token()) && ten == null) {
+            ten = c;
+          } else if ("K".equals(c.token()) && king == null) {
+            king = c;
+          }
+        }
+        if (five != null && ten != null && king != null) {
+          List<Card> three = Arrays.asList(five, ten, king);
+          if (botBeats(rb, three, top)) {
+            return new BotMove(false, three);
+          }
+        }
+        return new BotMove(true, null);
+      }
+      // 三条
+      for (List<Card> g : groups.values()) {
+        if (g.size() >= 3) {
+          List<Card> three = Arrays.asList(g.get(0), g.get(1), g.get(2));
+          if (botBeats(rb, three, top) && botStrength(rb, three) < bestStrength) {
+            best = three;
+            bestStrength = botStrength(rb, three);
+          }
+        }
+      }
+    } else if (need == 4) {
+      for (List<Card> g : groups.values()) {
+        if (g.size() >= 4) {
+          List<Card> four = Arrays.asList(g.get(0), g.get(1), g.get(2), g.get(3));
+          if (botBeats(rb, four, top) && botStrength(rb, four) < bestStrength) {
+            best = four;
+            bestStrength = botStrength(rb, four);
+          }
+        }
+      }
+    }
+
+    if (best == null) {
+      return new BotMove(true, null);
+    }
+    return new BotMove(false, best);
+  }
+
+  /** 这手牌能否压过 top（用于代打候选筛选） */
+  private boolean botBeats(RuleBook rb, List<Card> cards, CardPattern top) {
+    CardPattern p = CardPattern.of(cards);
+    return p != null && rb.beats(p, top);
+  }
+
+  /** 一手牌的综合强度（越小越弱），用于代打优先出最弱的牌 */
+  private int botStrength(RuleBook rb, List<Card> cards) {
+    int s = 0;
+    for (Card c : cards) {
+      s += rb.strength(c);
+    }
+    return s;
+  }
+
+  /** 代打的一步：pass=true 表示过牌，否则打出 cards */
+  private static final class BotMove {
+    final boolean pass;
+    final List<Card> cards;
+
+    BotMove(boolean pass, List<Card> cards) {
+      this.pass = pass;
+      this.cards = cards;
+    }
+  }
 
   /**
    * 出牌 / 过牌之后的公共后续：判定收轮、推进回合、判定结束
@@ -511,12 +841,17 @@ public class GameServiceImpl implements GameService {
     return false;
   }
 
+  /**
+   * 找该用户所在的进行中对局。
+   * 已出局（quit）的不算——主动离开过的玩家不能再通过 /v1/games/current 摸回这一局。
+   */
   private GameState findActiveByUser(Long userId) {
     for (GameState state : games.values()) {
       if (state.isEnded()) {
         continue;
       }
-      if (state.seatOf(userId) != null) {
+      GameState.Seat seat = state.seatOf(userId == null ? -1L : userId);
+      if (seat != null && !seat.isQuit()) {
         return state;
       }
     }
@@ -538,6 +873,10 @@ public class GameServiceImpl implements GameService {
     GameState.Seat me = state.seatOf(userId == null ? -1L : userId);
     if (me == null) {
       throw new BizException(ErrorCode.GAME_NOT_FOUND.getCode(), ErrorCode.GAME_NOT_FOUND.getMessage());
+    }
+    // 已出局：主动离开过这一局，不能再操作（他的牌由服务端代打）
+    if (me.isQuit()) {
+      throw new BizException(ErrorCode.GAME_NOT_FOUND.getCode(), "你已退出该对局");
     }
     if (me.isFinished()) {
       throw new BizException(ErrorCode.GAME_NOT_YOUR_TURN.getCode(), "你已出完手牌");

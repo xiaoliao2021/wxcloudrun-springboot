@@ -67,12 +67,17 @@ public class RoomController {
 
   /**
    * 离开房间，最后一人离开返回 room: null
+   *
+   * 房间里还在打牌的话，顺带把该玩家从对局里踢出局（托管代打）：
+   * 房间成员表已经把他删了，对局座位却还在，不标托管轮到他就没人出牌，整局会卡住。
    */
   @PostMapping("/leave")
   public ApiResponse leave(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
                            @RequestBody(required = false) RoomIdRequest request) {
     Long roomId = requireRoomId(request == null ? null : request.getRoomId());
-    return ApiResponse.ok(roomData(roomService.leave(userId, roomId)));
+    ApiResponse res = ApiResponse.ok(roomData(roomService.leave(userId, roomId)));
+    gameService.quitByRoom(userId, roomId);
+    return res;
   }
 
   /**

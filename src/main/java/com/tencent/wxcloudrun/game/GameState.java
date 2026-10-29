@@ -34,6 +34,16 @@ public class GameState {
     private int rankNo;
     private int scoreChange;
     private boolean win;
+    /** 该玩家是否已离开对局（App 切后台/返回大厅后由退局接口标记），服务端会代打 */
+    private boolean left;
+    /** 是否处于托管（autoHost）：离开后由服务端自动出牌 */
+    private boolean autoHost;
+    /**
+     * 是否已彻底退出该对局：主动离开（牌桌返回房间 / 房间页返回大厅 / 退出房间）时置位。
+     * 与 left 的区别：left 只是「不本人操作」，quit 是「出局且不能再回来」——
+     * 出局后 /v1/games/current 不再返回这局，play/pass 也会被拒。
+     */
+    private boolean quit;
 
     public Seat(int seat, long userId, String nickname) {
       this.seat = seat;
@@ -99,6 +109,30 @@ public class GameState {
 
     public void setWin(boolean win) {
       this.win = win;
+    }
+
+    public boolean isLeft() {
+      return left;
+    }
+
+    public void setLeft(boolean left) {
+      this.left = left;
+    }
+
+    public boolean isAutoHost() {
+      return autoHost;
+    }
+
+    public void setAutoHost(boolean autoHost) {
+      this.autoHost = autoHost;
+    }
+
+    public boolean isQuit() {
+      return quit;
+    }
+
+    public void setQuit(boolean quit) {
+      this.quit = quit;
     }
   }
 

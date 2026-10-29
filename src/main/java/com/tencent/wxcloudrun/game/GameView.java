@@ -96,6 +96,9 @@ public final class GameView {
       m.put("isTurn", !g.isEnded() && seat.getSeat() == g.getTurnSeat());
       m.put("isLeader", seat.getSeat() == g.getLeaderSeat());
       m.put("passed", g.getPassed().contains(seat.getSeat()));
+      m.put("left", seat.isLeft());
+      m.put("autoHost", seat.isAutoHost());
+      m.put("quit", seat.isQuit());
       list.add(m);
     }
     return list;
