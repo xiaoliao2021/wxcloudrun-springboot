@@ -1,14 +1,18 @@
 server:
   port: 80
 
-
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${MYSQL_ADDRESS}/${MYSQL_DATABASE:springboot_demo}
-    username: ${MYSQL_USERNAME}
+    url: jdbc:mysql://${MYSQL_ADDRESS:sh-cynosdbmysql-grp-992vjgl2.sql.tencentcdb.com:25401}/${MYSQL_DATABASE:510K}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD}
+  mvc:
+    view:
+      suffix: .html
+      prefix: /
 
+# 微信小游戏登录配置（appid/secret 从环境变量注入）
 wx:
   appid: ${WX_APPID:}
   secret: ${WX_SECRET:}

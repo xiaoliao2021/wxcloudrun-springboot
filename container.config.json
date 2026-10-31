@@ -22,10 +22,15 @@
 	],
 	"envParams": {},                                
 	"customLogs": "stdout",                         
-	"dataBaseName":"springboot_demo",               
+	"dataBaseName":"510K",
 	"executeSQLs":[
-		"CREATE DATABASE IF NOT EXISTS springboot_demo;",
-		"USE springboot_demo;",
-		"CREATE TABLE IF NOT EXISTS `Counters` (`id` int(11) NOT NULL AUTO_INCREMENT, `count` int(11) NOT NULL DEFAULT 1, `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (`id`)) ENGINE = InnoDB DEFAULT CHARSET = utf8;"
+		"CREATE DATABASE IF NOT EXISTS `510K` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;",
+		"USE `510K`;",
+		"CREATE TABLE IF NOT EXISTS `user` (`id` BIGINT AUTO_INCREMENT PRIMARY KEY, `player_id` VARCHAR(64) NOT NULL UNIQUE, `nickname` VARCHAR(64) NOT NULL, `avatar` VARCHAR(255) DEFAULT '', `token` VARCHAR(128) DEFAULT '', `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+		"CREATE TABLE IF NOT EXISTS `room` (`id` BIGINT AUTO_INCREMENT PRIMARY KEY, `room_id` VARCHAR(64) NOT NULL UNIQUE, `owner_id` VARCHAR(64) NOT NULL, `config_json` TEXT, `status` VARCHAR(32) NOT NULL DEFAULT 'WAITING', `game_id` VARCHAR(64) DEFAULT NULL, `state_version` BIGINT NOT NULL DEFAULT 0, `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+		"CREATE TABLE IF NOT EXISTS `room_player` (`id` BIGINT AUTO_INCREMENT PRIMARY KEY, `room_id` VARCHAR(64) NOT NULL, `player_id` VARCHAR(64) NOT NULL, `seat_no` INT NOT NULL, `ready` TINYINT(1) NOT NULL DEFAULT 0, `online` TINYINT(1) NOT NULL DEFAULT 1, `trustee` TINYINT(1) NOT NULL DEFAULT 0, UNIQUE KEY `uk_room_player` (`room_id`,`player_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+		"CREATE TABLE IF NOT EXISTS `game` (`id` BIGINT AUTO_INCREMENT PRIMARY KEY, `game_id` VARCHAR(64) NOT NULL UNIQUE, `room_id` VARCHAR(64) NOT NULL, `game_phase` VARCHAR(32) NOT NULL DEFAULT 'DEALING', `config_json` TEXT, `hands_json` TEXT, `draw_pile_json` TEXT, `table_cards_json` TEXT, `current_play_json` TEXT, `round_table_score` INT NOT NULL DEFAULT 0, `captured_scores_json` TEXT, `pass_count` INT NOT NULL DEFAULT 0, `last_player_id` VARCHAR(64) DEFAULT NULL, `first_player_id` VARCHAR(64) DEFAULT NULL, `turn_player_id` VARCHAR(64) DEFAULT NULL, `round_winner_id` VARCHAR(64) DEFAULT NULL, `state_version` BIGINT NOT NULL DEFAULT 0, `status` VARCHAR(32) NOT NULL DEFAULT 'PLAYING', `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+		"CREATE TABLE IF NOT EXISTS `game_player` (`id` BIGINT AUTO_INCREMENT PRIMARY KEY, `game_id` VARCHAR(64) NOT NULL, `player_id` VARCHAR(64) NOT NULL, `seat_no` INT NOT NULL, `hand_json` TEXT, `hand_count` INT NOT NULL DEFAULT 0, `captured_score` INT NOT NULL DEFAULT 0, `trustee` TINYINT(1) NOT NULL DEFAULT 0, `settled` TINYINT(1) NOT NULL DEFAULT 0, `total_score` INT DEFAULT NULL, `hands_score` INT DEFAULT NULL, `rank_no` INT DEFAULT NULL, UNIQUE KEY `uk_game_player` (`game_id`,`player_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+		"CREATE TABLE IF NOT EXISTS `game_event` (`id` BIGINT AUTO_INCREMENT PRIMARY KEY, `game_id` VARCHAR(64) NOT NULL, `event_name` VARCHAR(64) NOT NULL, `payload_json` TEXT, `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
 	]                                               
 }

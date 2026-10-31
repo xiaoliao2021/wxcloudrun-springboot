@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>510K 测试台</title>
+<style>
+:root{--red:#b42318;--ink:#1f2937;--muted:#6b7280}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:var(--ink);background:linear-gradient(160deg,#eef4ff,#f7f9fc);min-height:100vh}
+.app{max-width:1080px;margin:0 auto;padding:14px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.top h1{margin:0;font-size:20px;color:var(--red)}
+.badge{padding:5px 10px;border-radius:999px;background:#e5e7eb;font-size:12px}
+.badge.ok{background:#dcfce7;color:#166534}
+.badge.turn{background:var(--red);color:#fff}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:var(--red);color:#fff;margin:3px 4px 3px 0}
+button.ghost{background:#64748b}
+button:disabled{opacity:.4;cursor:not-allowed}
+input{font:inherit;border:1px solid #d1d5db;border-radius:8px;padding:8px;width:100%}
+label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+.card-box{background:#fff;border-radius:14px;padding:16px;box-shadow:0 4px 16px #1f293710;margin-bottom:14px}
+.muted{color:var(--muted);font-size:13px}
+/* 布局：左窄栏 + 右牌桌 */
+.grid{display:grid;grid-template-columns:300px 1fr;gap:14px;align-items:start}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+/* 牌桌场景 */
+.table-scene{position:relative;background:radial-gradient(circle at 50% 30%,#1e7a4f,#0f5132);border-radius:18px;padding:18px 16px;min-height:380px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 0 60px #0003}
+.oppo-row{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}
+.oppo{background:#ffffff22;border:1px solid #ffffff33;border-radius:10px;padding:8px 12px;color:#fff;font-size:13px;min-width:130px;text-align:center}
+.oppo.turn{background:#b42318cc;border-color:#ffb4a8}
+.oppo .cards-back{letter-spacing:2px;font-size:15px;margin-top:4px;color:#dbeafe}
+.center-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:130px}
+.table-cards{display:flex;gap:8px;justify-content:center;min-height:86px}
+.table-cards .card{cursor:default;transform:none}
+.play-type{color:#fde68a;font-weight:700;font-size:15px}
+.deck-info{color:#a7f3d0;font-size:13px}
+.hand-zone{background:#ffffff14;border-radius:14px;padding:10px}
+.hand{display:flex;justify-content:center;flex-wrap:wrap;gap:0;min-height:104px;padding-top:10px}
+.pcard{position:relative;width:72px;height:100px;margin-left:-18px;background:#fff;border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 2px 6px #0003;cursor:pointer;transition:transform .12s}
+.pcard:first-child{margin-left:0}
+.pcard .rank{position:absolute;top:6px;left:8px;font-weight:800;font-size:20px;line-height:1}
+.pcard .suit-big{position:absolute;bottom:8px;right:8px;font-size:26px;line-height:1}
+.pcard .score-tag{position:absolute;bottom:6px;left:8px;font-size:10px;color:#b45309;font-weight:700}
+.pcard.sel{transform:translateY(-14px);border-color:var(--red);box-shadow:0 6px 14px #b4231844}
+.pcard.sel::after{content:"";position:absolute;inset:0;border:2px solid var(--red);border-radius:9px}
+.SPADE,.CLUB{color:#111827}.HEART,.DIAMOND{color:#c62828}
+.actions{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;padding-top:8px}
+/* 结算浮层 */
+.overlay{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;z-index:60}
+.overlay.show{display:flex}
+.overlay .card-box{width:340px;max-width:92vw;margin:0}
+.overlay h2{margin:0 0 10px;font-size:18px}
+.score{font-weight:800;color:var(--red)}
+.rowline{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #e5e7eb;font-size:14px}
+/* 侧栏 */
+.room{border:1px solid #e5e7eb;border-radius:9px;padding:8px 10px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.players-mini{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}
+.pill{background:#f8fafc;border-left:3px solid #94a3b8;border-radius:6px;padding:6px 8px;font-size:12px}
+.pill.ready{border-color:#16a34a}
+/* 日志弹窗 */
+.fab{position:fixed;right:16px;bottom:16px;z-index:50;background:#111827;color:#fff;border-radius:999px;padding:10px 16px;font-size:13px;box-shadow:0 6px 18px #0005}
+.modal{position:fixed;inset:0;background:#0009;display:none;z-index:70;align-items:center;justify-content:center}
+.modal.show{display:flex}
+.modal-inner{width:680px;max-width:94vw;height:70vh;background:#fff;border-radius:14px;display:flex;flex-direction:column;overflow:hidden}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #e5e7eb}
+.modal-head b{font-size:15px}
+.modal-body{flex:1;overflow:auto;background:#111827;color:#d1fae5;padding:10px;font:12px ui-monospace,Consolas,monospace;white-space:pre-wrap}
+.modal-body .error{color:#fca5a5}
+.hidden{display:none!important}
+.tag{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:999px;font-size:10px;vertical-align:middle}
+.tag.ai{background:#b42318;color:#fff}
+.tag.off{background:#374151;color:#fff}
+#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%) translateY(-60px);background:#111827;color:#fff;padding:9px 18px;border-radius:999px;font-size:13px;transition:transform .25s;z-index:80;box-shadow:0 6px 18px #0005}
+#toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <h1>510K 测试台</h1>
+    <div class="row">
+      <span id="status" class="badge">未连接</span>
+      <button class="ghost" onclick="openModal('lobbyModal')">大厅</button>
+      <button class="ghost" onclick="openModal('logModal')">日志</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <aside>
+      <div class="card-box">
+        <b>身份</b>
+        <label>玩家 ID</label><input id="playerId" value="P1">
+        <label>昵称</label><input id="nickname" value="玩家1">
+        <div style="margin-top:8px">
+          <button id="connectBtn" onclick="connect()">连接并登录</button>
+          <button class="ghost" onclick="disconnect()">断开</button>
+        </div>
+      </div>
+      <div class="card-box hidden" id="roomPanel">
+        <b>房间 <span id="roomIdText"></span></b>
+        <div id="roomPlayers" class="players-mini"></div>
+        <div>
+          <button onclick="ready(true)">准备</button>
+          <button class="ghost" onclick="ready(false)">取消</button>
+          <button onclick="startGame()">开始</button>
+          <button class="ghost" onclick="leaveRoom()">离开</button>
+        </div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="table-scene hidden" id="gamePanel">
+        <div class="oppo-row" id="oppoRow"></div>
+        <div class="center-area">
+          <div id="tableType" class="play-type"></div>
+          <div class="table-cards" id="tableCards"></div>
+          <div class="deck-info">牌堆 <span id="deckRemain">-</span> ｜ 本轮桌面分 <span id="roundScore">0</span> ｜ 我的累计 <span id="myCapture">0</span></div>
+        </div>
+        <div class="hand-zone">
+          <div class="hand" id="hand"></div>
+          <div class="actions">
+            <span id="turnText" class="badge"></span>
+            <button onclick="playCards()">出牌</button>
+            <button class="ghost" onclick="passPlay()">过牌</button>
+            <button class="ghost" onclick="trustee(true)">托管</button>
+            <button class="ghost" onclick="trustee(false)">取消托管</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-box muted hidden" id="emptyHint">连接后在「大厅」创建或加入房间，房主点「开始」进入牌局。</div>
+    </main>
+  </div>
+</div>
+
+<!-- 大厅弹窗 -->
+<div class="modal" id="lobbyModal">
+  <div class="modal-inner" style="height:auto;max-height:80vh">
+    <div class="modal-head"><b>大厅</b><button class="ghost" onclick="closeModal('lobbyModal')">关闭</button></div>
+    <div style="padding:12px">
+      <button onclick="createRoom()">创建房间</button>
+      <button class="ghost" onclick="send('lobby.getRoomList',{})">刷新列表</button>
+      <div id="roomList" class="muted">暂无等待中的房间</div>
+    </div>
+  </div>
+</div>
+
+<!-- 日志弹窗 -->
+<div class="modal" id="logModal">
+  <div class="modal-inner">
+    <div class="modal-head"><b>事件日志</b><div><button class="ghost" onclick="document.getElementById('log').innerHTML=''">清空</button><button class="ghost" onclick="closeModal('logModal')">关闭</button></div></div>
+    <div class="modal-body" id="log"></div>
+  </div>
+</div>
+
+<!-- 结算浮层 -->
+<div class="overlay" id="settleOverlay">
+  <div class="card-box">
+    <h2>🎉 本局结算</h2>
+    <div id="settle"></div>
+    <div style="text-align:right;margin-top:10px"><button onclick="closeModal('settleOverlay')">知道了</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script>
+let ws=null, me='', roomId='', gameId='', hand=[], selected=new Set();
+const players={};              // playerId -> {nickname,seatNo,ready,online,trustee,handCount}
+const lastPlay={};             // playerId -> 最近动作 {type:'play'|'pass', playType, cards}
+const SUIT_ICONS={SPADE:'♠',HEART:'♥',CLUB:'♣',DIAMOND:'♦'};
+const $=id=>document.getElementById(id);
+
+function log(s,cls=''){
+  const box=$('log');
+  const x=document.createElement('div'); if(cls)x.className=cls;
+  x.textContent='['+new Date().toLocaleTimeString()+'] '+s;
+  box.appendChild(x); box.scrollTop=box.scrollHeight;
+}
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.remove('show'),2500);
+}
+function openModal(id){$(id).classList.add('show')}
+function closeModal(id){$(id).classList.remove('show')}
+for(const id of['lobbyModal','logModal','settleOverlay'])
+  $(id).addEventListener('click',e=>{if(e.target===$(id))closeModal(id)});
+
+function connect(){
+  disconnect();
+  me=$('playerId').value.trim();
+  if(!me){log('请填写玩家 ID','error');return}
+  $('status').textContent='连接中';
+  ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws/game');
+  ws.onopen=()=>{$('status').textContent='已连接 · '+me;$('status').className='badge ok';send('auth.login',{playerId:me,nickname:$('nickname').value||me});log('连接成功：'+me)};
+  ws.onclose=()=>{$('status').textContent='已断开';$('status').className='badge';log('连接断开','error')};
+  ws.onerror=()=>log('WebSocket 连接失败','error');
+  ws.onmessage=e=>{const m=JSON.parse(e.data);log(m.event+' '+JSON.stringify(m.payload));handle(m)};
+}
+function disconnect(){if(ws){ws.close();ws=null}}
+function send(event,payload,extra={}){if(!ws||ws.readyState!==1){log('请先连接','error');return}ws.send(JSON.stringify({event,requestId:'c-'+Date.now(),roomId,gameId,...extra,payload}))}
+
+/* ====== 事件驱动：所有状态更新走 handle，渲染统一由事件触发 ====== */
+function handle(m){
+  const p=m.payload||{};
+  switch(m.event){
+    case'auth.loginResult':break;
+    case'lobby.roomList':renderRooms(p.rooms||[]);break;
+    case'lobby.createRoomResult':case'lobby.joinRoomResult':
+      if(p.roomId){roomId=p.roomId;closeModal('lobbyModal');send('room.getInfo',{roomId})}break;
+    case'room.info':
+      roomId=p.roomId;
+      (p.players||[]).forEach(x=>players[x.playerId]={...(players[x.playerId]||{}),...x});
+      if(p.status==='PLAYING'&&p.gameId){gameId=p.gameId;showGame(true)}
+      renderRoom();renderAll(p);break;
+    case'room.playerJoined':
+      players[p.player.id||p.playerId]={...(p.player||{})};toast(nickOf(p.player.id||p.playerId)+' 加入了房间');renderRoom();renderAll(p);break;
+    case'room.playerLeft':
+      delete players[p.playerId];toast(nickOf(p.playerId)+' 离开了房间');renderRoom();renderAll(p);break;
+    case'room.playerUpdated':
+      players[p.playerId]={...(players[p.playerId]||{}),...p};renderRoom();renderAll(p);break;
+    case'room.readyChanged':
+      if(players[p.playerId])players[p.playerId].ready=p.ready;
+      toast(nickOf(p.playerId)+(p.ready?' 已准备':' 取消准备'));renderRoom();break;
+    case'room.configUpdated':toast('房主更新了房间配置');break;
+    case'room.kicked':toast('玩家 '+(p.targetPlayerId||'')+' 被踢出');delete players[p.targetPlayerId];renderRoom();break;
+    case'room.closed':toast('房间已关闭：'+(p.reason||''));resetLocal();break;
+    case'room.gameStarted':
+      gameId=p.gameId;showGame(true);toast('游戏开始！先出：'+nickOf(p.firstPlayerId));break;
+    case'game.deal':
+      gameId=p.gameId;hand=p.myCards||[];selected.clear();
+      if(players[me])players[me].handCount=hand.length;showGame(true);renderAll(p);break;
+    case'game.stateSync':
+      hand=p.myCards||hand;
+      Object.entries(p.players||{}).forEach(([k,v])=>{players[k]=players[k]||{};players[k].handCount=v});
+      renderAll(p);break;
+    case'game.playApplied':
+      if(p.playerId){lastPlay[p.playerId]={type:'play',playType:p.playType,cards:p.cards};if(players[p.playerId])players[p.playerId].handCount=p.handsCount}
+      renderAll(p);break;
+    case'game.passApplied':
+      if(p.playerId)lastPlay[p.playerId]={type:'pass'};
+      renderAll(p);break;
+    case'game.turnChanged':renderAll(p);break;
+    case'game.replenish':
+      if(p.playerId===me)hand=(hand||[]).concat(p.cards||[]);
+      if(players[p.playerId])players[p.playerId].handCount=p.handCount;
+      if(p.playerId!==me)toast(nickOf(p.playerId)+' 补了 '+(p.cards?p.cards.length:0)+' 张牌');
+      renderAll(p);break;
+    case'game.replenishDone':
+      Object.entries(p.playersHandCount||{}).forEach(([k,v])=>{players[k]=players[k]||{};players[k].handCount=v});
+      renderAll(p);break;
+    case'game.roundEnd':
+      toast('🏆 '+nickOf(p.roundWinnerId)+' 抢得本轮 '+p.roundScore+' 分');
+      renderAll(p);break;
+    case'game.trusteeChanged':
+      if(players[p.playerId])players[p.playerId].trustee=p.trustee;
+      toast(p.trustee?nickOf(p.playerId)+' 进入托管':nickOf(p.playerId)+' 取消托管');
+      renderRoom();renderAll(p);break;
+    case'presence.playerOffline':
+      if(players[p.playerId]){players[p.playerId].online=false;if(p.autoTrustee)players[p.playerId].trustee=true}
+      toast(nickOf(p.playerId)+' 离线'+(p.autoTrustee?'，已自动托管':''));
+      renderRoom();renderAll(p);break;
+    case'presence.playerOnline':
+      if(players[p.playerId])players[p.playerId].online=true;
+      toast(nickOf(p.playerId)+' 回来了');renderRoom();renderAll(p);break;
+    case'chat.message':toast(nickOf(p.playerId)+'：'+p.content);break;
+    case'game.settle':renderSettle(p);break;
+    case'system.error':log('错误 '+p.code+'：'+p.message,'error');toast('操作失败：'+p.message);break;
+  }
+}
+function nickOf(id){return id===me?((players[id]&&players[id].nickname)||id+'（我）'):((players[id]&&players[id].nickname)||id)}
+function resetLocal(){Object.keys(players).forEach(k=>delete players[k]);Object.keys(lastPlay).forEach(k=>delete lastPlay[k]);roomId='';gameId='';hand=[];selected.clear();$('roomPanel').classList.add('hidden');showGame(false)}
+
+/* ====== 渲染 ====== */
+function renderRooms(rs){
+  $('roomList').innerHTML=rs.length?rs.map(r=>`<div class="room"><span><b>${r.roomId}</b>　${r.playerCount}/${r.maxPlayers}人</span><button onclick="join('${r.roomId}')">加入</button></div>`).join(''):'<span class="muted">暂无等待中的房间</span>';
+}
+function createRoom(){send('lobby.createRoom',{nickname:$('nickname').value||me,config:{maxPlayers:4,deckCount:1,allowTripleWithTwo:true,allowFourWithOne:true,allowFiveCardFlush:true}})}
+function join(id){send('lobby.joinRoom',{roomId:id})}
+
+function renderRoom(){
+  if(!roomId)return;
+  $('roomPanel').classList.remove('hidden');
+  $('roomIdText').textContent=roomId;
+  const list=Object.entries(players).sort((a,b)=>(a[1].seatNo||0)-(b[1].seatNo||0));
+  $('roomPlayers').innerHTML=list.map(([id,x])=>
+    `<div class="pill ${x.ready?'ready':''}">${x.nickname||id}${id===me?'（我）':''}<br>
+     ${x.ready?'已准备':'未准备'} · ${x.online===false?'离线':'在线'}${x.trustee?' · <b style="color:#b42318">托管</b>':''}</div>`).join('');
+}
+function ready(v){send(v?'room.ready':'room.cancelReady',{})}
+function startGame(){send('room.startGame',{})}
+function leaveRoom(){send('room.leave',{});resetLocal()}
+function showGame(on){$('gamePanel').classList.toggle('hidden',!on);$('emptyHint').classList.toggle('hidden',on)}
+
+function renderAll(p){
+  showGame(true);
+  if(p.deckRemain!==undefined)$('deckRemain').textContent=p.deckRemain;
+  if(p.roundTableScore!==undefined)$('roundScore').textContent=p.roundTableScore;
+  if(p.capturedScores&&p.capturedScores[me]!==undefined)$('myCapture').textContent=p.capturedScores[me];
+  if(p.turnPlayerId){const t=$('turnText');t.textContent=p.turnPlayerId===me?'轮到我了':(nickOf(p.turnPlayerId)+' 出牌中');t.className='badge '+(p.turnPlayerId===me?'turn':'')}
+  renderOpponents(p);
+  renderHand();
+  renderTable(p);
+  syncButtons(p);
+}
+function renderOpponents(p){
+  const ids=Object.keys(players).filter(id=>id!==me);
+  const turnId=p.turnPlayerId;
+  $('oppoRow').innerHTML=ids.length?ids.map(id=>{
+    const x=players[id],a=lastPlay[id];
+    const tags=[x.online===false?'<span class="tag off">离线</span>':'',
+                x.trustee?'<span class="tag ai">托管</span>':''].join('');
+    let act='';
+    if(a)act=a.type==='pass'?'<div class="act">不要</div>':`<div class="act">${(a.cards||[]).length} 张 · ${a.playType||''}</div>`;
+    const cnt=x.handCount!==undefined?`🂠 ${x.handCount}`:'🂠';
+    return `<div class="oppo ${turnId===id?'turn':''}"><b>${nickOf(id)}</b>${tags}<div class="cards-back">${cnt}</div>${act}</div>`;
+  }).join(''):'<div class="oppo">等待其他玩家…</div>';
+}
+function renderHand(){
+  $('hand').innerHTML=(hand||[]).map(c=>{
+    const r=c.rank&&c.rank.label?c.rank.label:c.rank;
+    return `<div class="pcard ${c.suit} ${selected.has(c.cardId)?'sel':''}" onclick="toggle('${c.cardId}')">
+      <div class="rank">${r}</div><div class="score-tag">${cardScore(r)?cardScore(r)+'分':''}</div>
+      <div class="suit-big">${SUIT_ICONS[c.suit]||''}</div></div>`;
+  }).join('');
+}
+function cardScore(r){return r==='5'?5:(r==='10'||r==='K')?10:0}
+function toggle(id){selected.has(id)?selected.delete(id):selected.add(id);renderHand()}
+function renderTable(p){
+  const cp=p.currentPlay;let cards=[],type='';
+  if(cp){cards=cp.cards||[];type=cp.playType||cp.type||'';lastPlay._table={cards,playType:type}}
+  else if(lastPlay._table){cards=lastPlay._table.cards;type=lastPlay._table.playType}
+  $('tableType').textContent=type?('桌面：'+type):'等待出牌';
+  $('tableCards').innerHTML=cards.length?cards.map(c=>{
+    const r=c.rank&&c.rank.label?c.rank.label:c.rank;
+    return `<div class="pcard ${c.suit}" style="cursor:default"><div class="rank">${r}</div><div class="suit-big">${SUIT_ICONS[c.suit]||''}</div></div>`;
+  }).join(''):'<span class="muted" style="color:#a7f3d0">本轮尚未出牌</span>';
+}
+function syncButtons(p){
+  const my=p.turnPlayerId===me;
+  document.querySelector('.actions button').disabled=!my;
+}
+function playCards(){if(!selected.size){log('请先选牌','error');return}send('game.playCards',{cardIds:[...selected]});selected.clear()}
+function passPlay(){send('game.pass',{})}
+function trustee(v){send((v?'game.trustee.enable':'game.trustee.disable'),{})}
+
+function renderSettle(p){
+  const rows=Object.entries(p.capturedScores||{}).map(([k,v])=>`<div class="rowline"><span>${k===p.winnerId?'🏆 '+nickOf(k):nickOf(k)}</span><span>${v} 分</span></div>`).join('');
+  $('settle').innerHTML=`<div class="rowline"><span>赢家</span><b>${nickOf(p.winnerId)}</b></div>
+    <div class="rowline"><span>赢家总分</span><span class="score">${p.winnerTotalScore}</span></div>
+    <div class="rowline"><span>手牌分（归赢家）</span><span>${p.handsScore}</span></div>
+    ${rows}
+    <div class="rowline"><span>排名</span><span>${(p.ranking||[]).map(nickOf).join(' → ')}</span></div>`;
+  openModal('settleOverlay');
+}
+</script>
+</body></html>

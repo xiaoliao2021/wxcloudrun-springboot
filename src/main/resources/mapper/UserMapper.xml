@@ -9,6 +9,7 @@
         <result property="sessionKey" column="session_key"/>
         <result property="nickname" column="nickname"/>
         <result property="avatarUrl" column="avatar_url"/>
+        <result property="profileAuthorized" column="profile_authorized"/>
         <result property="gender" column="gender"/>
         <result property="coin" column="coin"/>
         <result property="roomCard" column="room_card"/>
@@ -21,7 +22,7 @@
     </resultMap>
 
     <select id="selectByOpenid" resultMap="userMap">
-        SELECT `id`, `openid`, `unionid`, `session_key`, `nickname`, `avatar_url`, `gender`,
+        SELECT `id`, `openid`, `unionid`, `session_key`, `nickname`, `avatar_url`, `profile_authorized`, `gender`,
                `coin`, `room_card`, `total_game`, `win_game`, `status`,
                `last_login_at`, `created_at`, `updated_at`
         FROM `user`
@@ -30,7 +31,7 @@
     </select>
 
     <select id="selectById" resultMap="userMap">
-        SELECT `id`, `openid`, `unionid`, `session_key`, `nickname`, `avatar_url`, `gender`,
+        SELECT `id`, `openid`, `unionid`, `session_key`, `nickname`, `avatar_url`, `profile_authorized`, `gender`,
                `coin`, `room_card`, `total_game`, `win_game`, `status`,
                `last_login_at`, `created_at`, `updated_at`
         FROM `user`
@@ -92,6 +93,10 @@
         </if>
         <if test="unionid != null and unionid != ''">
             , `unionid` = #{unionid}
+        </if>
+        <!-- 授权完成（或用户明确跳过）时打标，之后登录直接下发缓存资料，不再拉授权 -->
+        <if test="profileAuthorized != null and profileAuthorized > 0">
+            , `profile_authorized` = #{profileAuthorized}
         </if>
         WHERE `id` = #{id}
     </update>

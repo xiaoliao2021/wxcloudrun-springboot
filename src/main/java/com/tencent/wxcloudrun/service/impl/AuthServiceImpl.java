@@ -238,6 +238,7 @@ public class AuthServiceImpl implements AuthService {
     update.setAvatarUrl(json.path("avatarUrl").asText(""));
     update.setGender(json.path("gender").asInt(0));
     update.setUnionid(json.path("unionId").asText(""));
+    update.setProfileAuthorized(1);
     userMapper.updateProfileById(update);
 
     return UserVo.from(userMapper.selectById(userId), false);
@@ -265,6 +266,7 @@ public class AuthServiceImpl implements AuthService {
     update.setId(userId);
     update.setNickname(nickname);
     update.setAvatarUrl(avatarUrl);
+    update.setProfileAuthorized(1);
     userMapper.updateProfileById(update);
 
     logger.info("profile updated (plain), userId={}, nickname={}, avatar={}",

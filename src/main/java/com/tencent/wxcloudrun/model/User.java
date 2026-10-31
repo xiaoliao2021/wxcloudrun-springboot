@@ -14,6 +14,8 @@ public class User implements Serializable {
   private String sessionKey;
   private String nickname;
   private String avatarUrl;
+  /** 是否已完成头像昵称授权 0未授权 1已授权/已跳过 */
+  private Integer profileAuthorized;
   private Integer gender;
   private Long coin;
   private Integer roomCard;
