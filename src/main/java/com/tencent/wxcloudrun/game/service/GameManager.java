@@ -569,7 +569,9 @@ public class GameManager {
         int handsScore = 0; for (Map.Entry<String, List<Card>> e : game.getHands().entrySet()) if (!e.getKey().equals(winnerId)) handsScore += RuleService.calculateCardScore(e.getValue());
         List<PlayerState> rank = new ArrayList<>(game.getPlayers().values());
         for (PlayerState p : rank) { int hs = p.getPlayerId().equals(winnerId) ? 0 : RuleService.calculateCardScore(game.getHands().get(p.getPlayerId())); p.setHandsScore(hs); p.setCapturedScore(game.getCapturedScores().get(p.getPlayerId())); p.setTotalScore(p.getPlayerId().equals(winnerId) ? p.getCapturedScore() + handsScore : p.getCapturedScore()); p.setSettled(true); }
-        rank.sort(Comparator.comparingInt(PlayerState::getCapturedScore).reversed().thenComparing(Comparator.comparingInt(PlayerState::getHandsScore).reversed()).thenComparingInt(p -> game.getHands().get(p.getPlayerId()).size()).thenComparingInt(PlayerState::getSeatNo));
+        // 名次按【总分】降序（抢分 + 赢家从别人手里收的牌分），不再只看抢分，
+        // 否则赢家 60 分会被抢分 35 分的玩家排到后面
+        sortSettlementRank(rank, game);
         List<String> ranking = new ArrayList<>(); for (int i = 0; i < rank.size(); i++) { rank.get(i).setRankNo(i + 1); ranking.add(rank.get(i).getPlayerId()); }
         Map<String, Integer> finalScores = new LinkedHashMap<>();
         for (PlayerState p : rank) finalScores.put(p.getPlayerId(), p.getTotalScore());
@@ -585,6 +587,14 @@ public class GameManager {
         }
         broadcastGame(game, "game.settle", map("winnerId", winnerId, "reason", "DECK_EMPTY_AND_HAND_EMPTY", "deckRemain", 0, "capturedScores", game.getCapturedScores(), "finalScores", finalScores, "handsScore", handsScore, "winnerTotalScore", game.getPlayers().get(winnerId).getTotalScore(), "remainingHands", remainingHands(game, winnerId), "ranking", ranking, "scoreDetail", map("tableCaptured", game.getCapturedScores(), "handsToWinner", handsScore, "drawPile", 0)));
         if (room != null) { room.setStatus(RoomState.Status.WAITING); room.setGameId(null); for (PlayerState p : room.getPlayers()) { p.setSettled(false); p.setReady(false); } }
+    }
+
+    /** 结算名次：总分降序；同分看抢分、剩牌少的靠前、最后按座位号稳定排序 */
+    public static void sortSettlementRank(List<PlayerState> rank, GameState game) {
+        rank.sort(Comparator.comparingInt(PlayerState::getTotalScore).reversed()
+                .thenComparing(Comparator.comparingInt(PlayerState::getCapturedScore).reversed())
+                .thenComparingInt(p -> game.getHands().get(p.getPlayerId()) == null ? 0 : game.getHands().get(p.getPlayerId()).size())
+                .thenComparingInt(PlayerState::getSeatNo));
     }
 
     private Map<String, Object> remainingHands(GameState game, String winner) { Map<String, Object> result = new LinkedHashMap<>(); for (Map.Entry<String, List<Card>> e : game.getHands().entrySet()) if (!e.getKey().equals(winner)) result.put(e.getKey(), e.getValue()); return result; }
