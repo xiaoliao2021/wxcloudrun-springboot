@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tencent.wxcloudrun.game.model.Card;
 import com.tencent.wxcloudrun.game.model.GameState;
 import com.tencent.wxcloudrun.game.model.Play;
+import com.tencent.wxcloudrun.game.model.PlayType;
 import com.tencent.wxcloudrun.game.model.PlayerState;
 import com.tencent.wxcloudrun.game.model.RoomConfig;
 import com.tencent.wxcloudrun.game.model.RoomState;
@@ -634,15 +635,60 @@ public class GameManager {
         }, TRUSTEE_THINK_MS, TimeUnit.MILLISECONDS);
     }
 
-    /** 托管策略：能压就用张数最少、牌力最弱的一手；压不了返回 null（由调用方过牌） */
+    /**
+     * 托管策略（对齐原项目 js/poker/auto.js 的 decide）：
+     *   首出：优先甩三张牌型（顺子 → 同花 → 三条 → 同花顺 → 510K），从最小的一手开始，
+     *         没有三张牌型才出最小单张（对子留着跟牌用）；
+     *   跟牌：只在同张数里找能压的，普通牌优先，510K/同花510K 这类炸弹留到最后；
+     *   都没有返回 null，由调用方过牌。
+     */
     private Play chooseTrusteePlay(GameState game, String playerId) {
         List<Card> hand = game.getHands().get(playerId);
-        List<Play> plays = RuleService.enumerateLegalPlays(hand, game.getCurrentPlay(), game.getConfig());
+        Play current = game.getCurrentPlay();
+        List<Play> plays = RuleService.enumerateLegalPlays(hand, current, game.getConfig());
         if (plays.isEmpty()) return null;
-        plays.sort(Comparator.comparingInt(Play::getSize)
-                .thenComparingInt(GameManager::hintTypeOrder)
+
+        if (current == null) {
+            List<Play> threes = new ArrayList<>();
+            List<Play> singles = new ArrayList<>();
+            for (Play p : plays) {
+                if (p.getSize() == 3) threes.add(p);
+                else if (p.getSize() == 1) singles.add(p);
+            }
+            if (!threes.isEmpty()) {
+                // 先比层级再比牌力：顺子最小先甩，510K 这类炸弹自然排在最后
+                threes.sort(Comparator.comparingInt(GameManager::hintTypeOrder)
+                        .thenComparingInt(GameManager::hintRankStrength));
+                return threes.get(0);
+            }
+            if (!singles.isEmpty()) {
+                singles.sort(Comparator.comparingInt(GameManager::hintRankStrength));
+                return singles.get(0);
+            }
+            plays.sort(Comparator.comparingInt(Play::getSize).thenComparingInt(GameManager::hintRankStrength));
+            return plays.get(0);
+        }
+
+        List<Play> sameSize = new ArrayList<>();
+        for (Play p : plays) {
+            if (p.getSize() == current.getSize()) sameSize.add(p);
+        }
+        if (sameSize.isEmpty()) return null;
+        List<Play> plain = new ArrayList<>();
+        List<Play> bombs = new ArrayList<>();
+        for (Play p : sameSize) {
+            if (isTrusteeBomb(p)) bombs.add(p); else plain.add(p);
+        }
+        List<Play> pool = plain.isEmpty() ? bombs : plain;
+        pool.sort(Comparator.comparingInt(GameManager::hintTypeOrder)
                 .thenComparingInt(GameManager::hintRankStrength));
-        return plays.get(0);
+        return pool.get(0);
+    }
+
+    /** 托管视角的炸弹：510K / 同花 510K（三张序列最高的两级，留着压关键牌） */
+    private static boolean isTrusteeBomb(Play play) {
+        PlayType type = play.getType();
+        return type == PlayType.FIVE_TEN_KING || type == PlayType.SUITED_FIVE_TEN_KING;
     }
     private void chat(String playerId, String roomId, String content) throws IOException { if (rooms.containsKey(roomId)) broadcastRoom(rooms.get(roomId), "chat.message", map("playerId", playerId, "content", content, "timestamp", System.currentTimeMillis())); }
 
