@@ -155,26 +155,33 @@ public class RuleService {
         if (currentPlay == null) return true;
         if (currentPlay.getSize() != newPlay.getSize()) return false;
 
+        // 三张牌型按层级互压：顺子 < 同花 < 三条 < 同花顺 < 510K < 同花510K，
+        // 所以同花能压任意顺子、三条能压同花/顺子
+        if (newPlay.getSize() == 3) {
+            int mine = threeTier(newPlay.getType());
+            int theirs = threeTier(currentPlay.getType());
+            if (mine > 0 && theirs > 0) {
+                if (mine != theirs) return mine > theirs;
+                return compareSameType(currentPlay, newPlay) > 0;
+            }
+        }
+
+        // 5 张：三带二 / 四带一 互压
         if (newPlay.getType() == PlayType.FOUR_WITH_ONE && currentPlay.getType() == PlayType.TRIPLE_WITH_TWO) return true;
         if (newPlay.getType() == PlayType.TRIPLE_WITH_TWO && currentPlay.getType() == PlayType.FOUR_WITH_ONE) return false;
-        // 产品规则：3 张三张（同点数）可以压 3 张顺子、3 张同花（非标准顺序）
-        if (newPlay.getType() == PlayType.TRIPLE && newPlay.getSize() == 3
-                && (currentPlay.getType() == PlayType.STRAIGHT || currentPlay.getType() == PlayType.FLUSH)
-                && currentPlay.getSize() == 3) return true;
 
-        int newLevel = specialLevel(newPlay.getType());
-        int oldLevel = specialLevel(currentPlay.getType());
-        if (newLevel != oldLevel) return newLevel > oldLevel;
-        if (newLevel > 0) return compareSameType(currentPlay, newPlay) > 0;
         if (currentPlay.getType() != newPlay.getType()) return false;
         return compareSameType(currentPlay, newPlay) > 0;
     }
 
-    /** 0=普通，1=同花顺，2=510K，3=同花510K。 */
-    private static int specialLevel(PlayType type) {
-        if (type == PlayType.STRAIGHT_FLUSH) return 1;
-        if (type == PlayType.FIVE_TEN_KING) return 2;
-        if (type == PlayType.SUITED_FIVE_TEN_KING) return 3;
+    /** 三张牌型层级（0 表示不是三张牌型）：顺子 1 < 同花 2 < 三条 3 < 同花顺 4 < 510K 5 < 同花510K 6 */
+    private static int threeTier(PlayType type) {
+        if (type == PlayType.STRAIGHT) return 1;
+        if (type == PlayType.FLUSH) return 2;
+        if (type == PlayType.TRIPLE) return 3;
+        if (type == PlayType.STRAIGHT_FLUSH) return 4;
+        if (type == PlayType.FIVE_TEN_KING) return 5;
+        if (type == PlayType.SUITED_FIVE_TEN_KING) return 6;
         return 0;
     }
 
